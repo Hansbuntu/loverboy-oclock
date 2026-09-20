@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16181c">
+<title>Loverboy O'Clock</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Loverboy O'Clock</h1>
+
+  <div class="stage" id="stage">
+    <canvas id="game" width="640" height="400"></canvas>
+    <div class="hud">
+      <span id="levelLabel">Level 1 of 7</span>
+      <span id="progressLabel">0 / 5</span>
+    </div>
+    <div class="overlay" id="overlay">
+      <h2 id="overlayTitle">Loverboy O'Clock</h2>
+      <p id="overlayText">Tap to start Level 1.</p>
+      <div class="intro-details" id="introDetails" style="display:none;">
+        <p class="intro-about">A love story told through flight.</p>
+        <p class="intro-howto"><span>Tap to flap.</span><span>Thread the gaps.</span><span>Unlock the tape.</span></p>
+        <p class="intro-start">Tap to begin</p>
+      </div>
+      <div class="finale-extra" id="finaleExtra" style="display:none;">
+        <div class="finale-col">
+        <div class="finale-art">&#9829;</div>
+        <h2 class="finale-heading">You unlocked the whole tape.</h2>
+        <p class="finale-body">Thank you for playing through it all.</p>
+        </div>
+        <div class="finale-divider"></div>
+        <div class="finale-col">
+        <p class="finale-cta-label">Want early access?</p>
+        <p class="finale-cta-sub">Drop your email for the release link before it's public.</p>
+        <form id="emailForm">
+          <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" />
+          <p class="finale-error" id="emailError">Enter a valid email first.</p>
+          <button type="submit">Get early access</button>
+        </form>
+        <p class="finale-success" id="emailSuccess">You're on the list. Thank you for playing.</p>
+        <button class="secondary" id="playAgainBtn" type="button">Play again</button>
+        </div>
+      </div>
+    </div>
+    <div class="reveal" id="reveal">
+      <div class="reveal-card">
+        <div class="reveal-art" id="revealArt">
+          <img class="reveal-tile" id="revealTile" alt="" src="assets/tiles/heart.png">
+          <span class="reveal-num" id="revealNum">01</span>
+        </div>
+        <p class="reveal-label">Track unlocked</p>
+        <h2 class="reveal-title" id="revealTitle">Do You Love Me</h2>
+        <p class="reveal-hint">Playing a preview &middot; tap to skip</p>
+        <div class="reveal-progress"><div class="reveal-progress-fill" id="revealProgress"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Tracklist unlocks</h3>
+    <div class="tracks" id="tracks"></div>
+  </div>
+
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

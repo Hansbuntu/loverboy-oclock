@@ -1,0 +1,147 @@
+@font-face { font-family: "DM Serif Display"; src: url("../assets/fonts/dm-serif-display.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Pixelify Sans"; src: url("../assets/fonts/pixelify-sans.woff2") format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Instrument Serif"; src: url("../assets/fonts/instrument-serif-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Shrikhand"; src: url("../assets/fonts/shrikhand.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
+:root {
+    --font-pixel: "Pixelify Sans", "Courier New", monospace;
+    --font-about: "Instrument Serif", Georgia, serif;
+    --font-song: "DM Serif Display", Georgia, serif;
+    --font-groovy: "Shrikhand", "Trebuchet MS", sans-serif;
+    --bg: #f3f2ee; --text: #1c1c1a; --text-secondary: #5f5e5a;
+    --card-bg: #ffffff; --border: #d8d6cf; --accent: #d4537e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181c; --text: #eceae4; --text-secondary: #9a988f;
+      --card-bg: #202226; --border: #34363a; --accent: #ed93b1;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181c; --text: #eceae4; --text-secondary: #9a988f;
+    --card-bg: #202226; --border: #34363a; --accent: #ed93b1;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { touch-action: manipulation; overscroll-behavior-y: none; -webkit-touch-callout: none; margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 1.25rem 1rem 2rem; }
+  h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* title lives in the stage; kept for accessibility */
+  .stage { position: relative; width: 100%; width: min(100%, calc((100vh - 24px) * 1.6)); width: min(100%, calc((100dvh - 24px) * 1.6)); margin-inline: auto; border-radius: 12px; overflow: hidden; border: 0.5px solid var(--border); background: #26303d; user-select: none; }
+  .stage.shake { animation: shake 0.32s ease; }
+  @keyframes shake {
+    0% { transform: translate(0,0); } 20% { transform: translate(-6px,2px); }
+    40% { transform: translate(5px,-2px); } 60% { transform: translate(-4px,1px); }
+    80% { transform: translate(3px,-1px); } 100% { transform: translate(0,0); }
+  }
+  canvas { display: block; width: 100%; height: auto; touch-action: none; }
+  .hud { font-family: var(--font-pixel); font-size: 15px; letter-spacing: 0.04em; position: absolute; top: 0; left: 0; right: 0; padding: 10px 12px 22px; background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0)); box-sizing: border-box; display: flex; justify-content: space-between; color: #f4f2ee; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.4); pointer-events: none; letter-spacing: 0.01em; }
+  .overlay { position: absolute; inset: 0; background: rgba(10,10,12,0.66); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #fff; text-align: center; padding: 1.25rem; }
+  .overlay.hide { display: none; }
+  .overlay h2 { margin: 0; font-family: var(--font-song); font-size: 27px; font-weight: 400; letter-spacing: 0.01em; line-height: 1.15; text-shadow: 0 2px 10px rgba(0,0,0,0.55); }
+  .overlay h2.brand { font-family: var(--font-pixel); font-size: clamp(26px, 7vw, 40px); font-weight: 700; letter-spacing: 0.05em; line-height: 1.1; color: #fff; text-shadow: 3px 3px 0 var(--accent); }
+  .overlay p { margin: 0; font-size: 13px; color: #d8d6cf; max-width: 320px; }
+  .intro-details { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+  .intro-details p { margin: 0; }
+  .intro-details { align-items: center; gap: 14px; margin-top: 6px; }
+  .overlay .intro-about { font-family: var(--font-about); font-style: italic; font-size: 21px; line-height: 1.25; color: #f1ede4; max-width: 300px; }
+  .overlay .intro-howto { font-family: var(--font-groovy); font-size: 17px; line-height: 1.35; letter-spacing: 0.02em; max-width: none; display: flex; flex-direction: column; align-items: center; }
+  .overlay .intro-howto span { background: linear-gradient(90deg, #ff8fb1, #ffc857); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; filter: drop-shadow(2px 2px 0 rgba(0,0,0,0.45)); }
+  .overlay .intro-howto span:nth-child(2) { transform: rotate(-1.5deg); }
+  .overlay .intro-start { font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.75); animation: blink 1.4s steps(2, jump-none) infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .finale-extra { width: 100%; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .finale-col { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+  .finale-art { width: 76px; height: 76px; border-radius: 50%; background: #f6c343; display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: 0 8px 24px rgba(246,195,67,0.35); margin-bottom: 2px; }
+  .finale-heading { font-family: var(--font-song); font-size: 26px; font-weight: 400; color: #fff; margin: 0; }
+  .finale-body { font-size: 13px; color: #d8d6cf; margin: 0; line-height: 1.5; max-width: 280px; }
+  .finale-divider { width: 40px; height: 1px; background: rgba(255,255,255,0.25); margin: 6px 0; }
+  .finale-cta-label { font-size: 14px; font-weight: 500; color: #fff; margin: 0; }
+  .finale-cta-sub { font-size: 12px; color: rgba(255,255,255,0.65); margin: -4px 0 2px; line-height: 1.5; max-width: 280px; }
+  .finale-extra input[type="email"] { height: 40px; border-radius: 8px; border: 0.5px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); color: #fff; padding: 0 12px; font-size: 14px; width: 100%; }
+  .finale-extra input[type="email"]::placeholder { color: rgba(255,255,255,0.5); }
+  .finale-extra button { height: 40px; border-radius: 8px; border: 0.5px solid rgba(255,255,255,0.5); background: var(--accent); color: #2c0d18; font-weight: 500; font-size: 14px; cursor: pointer; }
+  .finale-extra button.secondary { background: transparent; color: #fff; }
+  .finale-error { font-size: 12px; color: #ffb3b3; display: none; margin: 0; }
+  .finale-success { font-size: 13px; color: #fff; display: none; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 12px; margin: 0; }
+  .reveal { position: absolute; inset: 0; background: rgba(8,8,10,0.75); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+  .reveal.show { opacity: 1; pointer-events: auto; }
+  .reveal-card { display: flex; flex-direction: column; align-items: center; gap: 8px; transform: scale(0.85) translateY(10px); transition: transform 0.3s cubic-bezier(0.2,0.8,0.3,1.3); padding: 1.5rem; }
+  .reveal.show .reveal-card { transform: scale(1) translateY(0); }
+  .reveal-art { position: relative; display: flex; align-items: center; justify-content: center; --glow: #ed93b1; }
+  .reveal-tile { display: block; width: 124px; height: auto; image-rendering: pixelated; filter: drop-shadow(0 0 16px var(--glow)) drop-shadow(0 8px 14px rgba(0,0,0,0.5)); }
+  .reveal-tile.pop { animation: tilePop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.35) both; }
+  @keyframes tilePop { 0% { transform: scale(0.4) rotate(-8deg); opacity: 0; } 60% { transform: scale(1.12) rotate(3deg); opacity: 1; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+  .reveal-num { position: absolute; right: -10px; bottom: -8px; min-width: 30px; padding: 3px 7px; border-radius: 999px; background: rgba(8,8,10,0.85); border: 1px solid var(--glow); font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.04em; text-align: center; color: #fff; }
+  .reveal-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin: 0; }
+  .reveal-title { font-family: var(--font-song); font-size: 30px; font-weight: 400; line-height: 1.15; text-shadow: 0 2px 10px rgba(0,0,0,0.55); color: #fff; margin: 0; text-align: center; max-width: 280px; }
+  .reveal-hint { font-size: 12px; color: rgba(255,255,255,0.65); margin: 6px 0 0; }
+  .reveal-progress { width: 160px; height: 3px; background: rgba(255,255,255,0.22); border-radius: 2px; overflow: hidden; margin-top: 10px; }
+  .reveal-progress-fill { height: 100%; width: 0%; background: rgba(255,255,255,0.9); }
+  .panel { margin-top: 1rem; background: var(--card-bg); border: 0.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; }
+  .panel h3 { font-family: var(--font-pixel); font-size: 16px; font-weight: 600; letter-spacing: 0.04em; margin: 0 0 8px; }
+  .tracks { display: flex; flex-direction: column; gap: 6px; }
+  .track-row { font-family: var(--font-song); font-size: 16px; letter-spacing: 0.01em; display: flex; justify-content: space-between; padding: 6px 10px; border-radius: 8px; background: var(--bg); }
+  .track-row.locked { color: var(--text-secondary); }
+  .track-row.unlocked { color: var(--accent); font-weight: 500; }
+
+  /* HUD is redundant while an overlay (intro / fail / finale) is up */
+  .stage:has(.overlay:not(.hide)) .hud { visibility: hidden; }
+
+  /* ---------- Mobile / small screens ---------- */
+  @media (max-width: 640px), (max-height: 500px) {
+    .wrap { padding: max(0.5rem, env(safe-area-inset-top)) 0 calc(1.5rem + env(safe-area-inset-bottom)); }
+    .stage { border-radius: 0; border-left: 0; border-right: 0; }
+    .panel { margin: 0.75rem 0.75rem 0; padding: 0.9rem 1rem; }
+    .hud { font-size: 14px; padding: 8px 12px 18px; }
+
+    /* intro + fail stay inside the game area, so keep them compact */
+    .overlay { gap: 6px; padding: 0.75rem; }
+    .overlay h2 { font-size: 22px; }
+    .overlay h2.brand { font-size: 24px; text-shadow: 2px 2px 0 var(--accent); }
+    .overlay .intro-details { gap: 8px; margin-top: 2px; }
+    .overlay .intro-about { font-size: 16px; }
+    .overlay .intro-howto { font-size: 13px; line-height: 1.3; }
+    .overlay .intro-start { font-size: 11px; }
+
+    /* end screen + song preview become full-screen layers so nothing gets clipped */
+    .overlay.full, .reveal {
+      position: fixed; inset: 0; z-index: 100; height: 100vh; height: 100dvh;
+      background: rgba(8,8,10,0.94);
+      -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    }
+    .overlay.full {
+      overflow-y: auto; -webkit-overflow-scrolling: touch; justify-content: flex-start; gap: 0;
+      padding: calc(1.25rem + env(safe-area-inset-top)) 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
+    }
+    .overlay.full .finale-extra { margin-block: auto; max-width: 340px; gap: 12px; }
+    .overlay.full .finale-art { width: 68px; height: 68px; font-size: 28px; }
+    .overlay.full .finale-heading { font-size: 30px; line-height: 1.1; }
+    .overlay.full .finale-body { font-size: 15px; max-width: 300px; }
+    .overlay.full .finale-cta-label { font-size: 16px; }
+    .overlay.full .finale-cta-sub { font-size: 13px; max-width: 300px; }
+    .overlay.full .finale-extra input[type="email"] { height: 48px; font-size: 16px; }   /* 16px stops iOS zooming on focus */
+    .overlay.full .finale-extra button { height: 48px; font-size: 16px; }
+    .overlay.full .finale-error, .overlay.full .finale-success { font-size: 14px; }
+    .overlay.full #emailForm { width: 100%; }
+    html:has(.overlay.full), html:has(.reveal.show) { overflow: hidden; }
+
+    .reveal-card { padding: calc(1.5rem + env(safe-area-inset-top)) 1.5rem calc(1.5rem + env(safe-area-inset-bottom)); gap: 10px; }
+    .reveal-tile { width: 164px; }
+    .reveal-num { font-size: 15px; right: -12px; bottom: -10px; }
+    .reveal-label { font-size: 12px; }
+    .reveal-title { font-size: 34px; max-width: 320px; }
+    .reveal-hint { font-size: 14px; }
+    .reveal-progress { width: min(240px, 70vw); height: 4px; }
+  }
+
+  /* landscape phones: compact reveal, and a two-column end screen so it fits one screen */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .reveal-card { padding-block: 0.75rem; gap: 6px; }
+    .reveal-tile { width: 92px; }
+    .reveal-title { font-size: 26px; }
+    .overlay.full .finale-extra { flex-direction: row; max-width: 640px; gap: 28px; margin-block: auto; align-items: center; }
+    .overlay.full .finale-col { flex: 1 1 0; gap: 10px; }
+    .overlay.full .finale-divider { width: 1px; height: 150px; margin: 0; }
+    .overlay.full .finale-heading { font-size: 26px; }
+    .overlay.full .finale-extra input[type="email"], .overlay.full .finale-extra button { height: 42px; }
+  }

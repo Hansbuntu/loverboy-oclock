@@ -1,0 +1,6 @@
+{
+  "name": "loverboy-oclock",
+  "private": true,
+  "description": "Browser game companion to TD's album Loverboy O'Clock",
+  "scripts": { "start": "node serve.js 5173" }
+}
