@@ -145,3 +145,17 @@
     .overlay.full .finale-heading { font-size: 26px; }
     .overlay.full .finale-extra input[type="email"], .overlay.full .finale-extra button { height: 42px; }
   }
+
+  /* ---------- Portrait phones: game up top, tracklist fills the rest of the screen ---------- */
+  @media (max-width: 640px) and (orientation: portrait) {
+    .wrap { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; padding-bottom: 0; }
+    .stage { flex: 0 0 auto; width: 100%;
+      height: clamp(80vw, calc(100vh - 318px), 88vw);
+      height: clamp(80vw, calc(100svh - 318px), 88vw); }   /* svh: stays put when the browser bar hides */
+    .stage canvas { height: 100%; }
+    .panel { flex: 1 1 auto; display: flex; flex-direction: column; margin: 8px 0 0; border-radius: 16px 16px 0 0; border-bottom: 0;
+      padding: 0.7rem 0.9rem calc(0.7rem + env(safe-area-inset-bottom)); }
+    .panel h3 { flex: none; font-size: 15px; margin-bottom: 6px; }
+    .tracks { flex: 1 1 auto; gap: 5px; }
+    .track-row { flex: 1 1 0; min-height: 30px; align-items: center; padding: 0 10px; font-size: 15px; }
+  }

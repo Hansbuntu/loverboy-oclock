@@ -4,7 +4,7 @@
 
   var canvas = document.getElementById("game");
   var ctx = canvas.getContext("2d");
-  var W = canvas.width, H = canvas.height;
+  var W = canvas.width, H = canvas.height;   // logical play-field size; fitCanvas() adapts it to the screen
   var GROUND_H = 20;
 
   var stageEl = document.getElementById("stage");
@@ -31,7 +31,7 @@
   var GRAVITY = 0.42;
   var FLAP_V = -7.4;
   var RADIUS = 14;
-  var PLAYER_X = 150;
+  var PLAYER_X = 150;   // ~23.5% of W
   var PIPE_WIDTH = 58;
   var PIPE_SPACING = 250;
   var PREVIEW_MS = CFG.previewMs || 10000;
@@ -86,8 +86,33 @@
     setTimeout(function () { tone(554, 554, 0.1, "triangle", 0.18); }, 90);
     setTimeout(function () { tone(659, 659, 0.16, "triangle", 0.18); }, 180);
   }
-  function haptic() {
-    if (navigator.vibrate) { try { navigator.vibrate(180); } catch (e) {} }
+  // Haptics. Android/Chrome: Vibration API. iPhone Safari has no Vibration API, but (iOS 17.4+)
+  // toggling a hidden <input type=checkbox switch> gives the system's light haptic tick.
+  var HAPTIC_PATTERNS = { flap: [10], pass: [25], fail: [50, 40, 150], unlock: [30, 50, 30, 50, 100] };
+  var HAPTIC_TICKS = { flap: 1, pass: 1, fail: 2, unlock: 3 };
+  var canVibrate = typeof navigator.vibrate === "function";
+  var hapticLabel = null;
+  (function setupSwitchHaptic() {
+    if (canVibrate) return;
+    try {
+      hapticLabel = document.createElement("label");
+      hapticLabel.setAttribute("aria-hidden", "true");
+      hapticLabel.style.display = "none";
+      var sw = document.createElement("input");
+      sw.type = "checkbox";
+      sw.setAttribute("switch", "");
+      hapticLabel.appendChild(sw);
+      document.head.appendChild(hapticLabel);
+    } catch (e) { hapticLabel = null; }
+  })();
+  function haptic(kind) {
+    if (canVibrate) {
+      try { navigator.vibrate(HAPTIC_PATTERNS[kind] || 20); } catch (e) {}
+      return;
+    }
+    if (!hapticLabel) return;
+    var n = HAPTIC_TICKS[kind] || 1;
+    for (var i = 0; i < n; i++) setTimeout(function () { try { hapticLabel.click(); } catch (e) {} }, i * 70);
   }
   function shakeStage() {
     stageEl.classList.remove("shake");
@@ -213,6 +238,7 @@
   var MOVE_FREEZE_X = PLAYER_X + 60;   // gap locks just before it reaches the player
   var MOVE_ZONE_MIN = PLAYER_X + 150;
 
+
   function startMove(p, L) {
     var lo = 50 + p.gapH / 2, hi = H - GROUND_H - 50 - p.gapH / 2;
     var dist = rand(0.45, 1) * L.move.amp;
@@ -282,6 +308,7 @@
   }
 
   function showIntro(lv) {
+    fitCanvas();
     overlay.classList.remove("full");
     currentLevel = lv;
     state = "intro";
@@ -318,7 +345,7 @@
     overlay.classList.remove("hide");
     try { previewAudio.pause(); } catch (e) {}
     sfxFail();
-    haptic();
+    haptic("fail");
     shakeStage();
   }
 
@@ -343,6 +370,7 @@
   }
 
   function startLevel(lv) {
+    fitCanvas();
     currentLevel = lv;
     pipesPassed = 0;
     player = { x: PLAYER_X, y: H / 2, vy: 0 };
@@ -384,6 +412,7 @@
     revealEl.classList.add("show");
 
     sfxUnlock();
+    haptic("unlock");
 
     previewAudio.src = trackAudioSrc(lv);
     previewAudio.currentTime = 0;
@@ -439,7 +468,7 @@
       finishReveal(currentLevel);
       return;
     }
-    if (state === "playing") { player.vy = FLAP_V; sfxFlap(); }
+    if (state === "playing") { player.vy = FLAP_V; sfxFlap(); if (canVibrate) haptic("flap"); }
   }
 
   // Posts to CFG.email.endpoint (Formspree-style JSON). With no endpoint set,
@@ -534,6 +563,7 @@
         p.passed = true;
         pipesPassed++;
         updateHud();
+        if (pipesPassed < L.need) haptic("pass");
         if (pipesPassed >= L.need) {
           onLevelCleared();
           return;
@@ -771,6 +801,34 @@
     }
   }
 
+  // Desktop / landscape: 640x400 (16:10). Portrait phones: a narrower, slightly taller field (500 wide)
+  // so everything is drawn ~25% bigger on a narrow screen. Height follows the stage box but stays
+  // within 400-440 so pillar spacing (and difficulty) is basically unchanged.
+  var phoneMQ = window.matchMedia("(max-width: 640px) and (orientation: portrait)");
+  function fitCanvas() {
+    var w = 640, h = 400;
+    if (phoneMQ.matches) {
+      w = 500;
+      var ratio = stageEl.clientHeight / Math.max(1, stageEl.clientWidth);
+      h = Math.round(Math.max(400, Math.min(440, w * ratio)));
+    }
+    if (w === W && h === H) return;
+    W = w; H = h;
+    canvas.width = w; canvas.height = h;
+    PLAYER_X = Math.round(W * 0.235);
+    MOVE_FREEZE_X = PLAYER_X + 60;
+    MOVE_ZONE_MIN = PLAYER_X + 150;
+    if (particles) particles = makeParticles(currentLevel);
+  }
+  var fitTimer = null;
+  function scheduleFit() {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(function () { if (state !== "playing") fitCanvas(); }, 150);
+  }
+  window.addEventListener("resize", scheduleFit);
+  window.addEventListener("orientationchange", scheduleFit);
+  fitCanvas();
+
   renderTracks();
   if (state === "intro") {
     showIntro(currentLevel);
@@ -798,6 +856,9 @@
     if (e.type === "touchstart") e.preventDefault();
     flap();
   }
+  stageEl.addEventListener("touchend", function (e) {
+    if (!canVibrate && state === "playing") haptic("flap");
+  }, { passive: true });
   stageEl.addEventListener("click", flapEventHandler);
   stageEl.addEventListener("touchstart", flapEventHandler, { passive: false });
   window.addEventListener("keydown", function (e) {
