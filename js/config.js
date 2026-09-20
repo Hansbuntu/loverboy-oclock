@@ -19,7 +19,7 @@ window.LOVERBOY_CONFIG = {
   // Email capture. Leave endpoint empty to keep saving to localStorage only.
   // Formspree: https://formspree.io/f/<id>   (POSTs JSON, expects 2xx)
   email: {
-    endpoint: "",
+    endpoint: "https://formspree.io/f/xyezewgl",
     field: "email"
   },
 
