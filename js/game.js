@@ -161,13 +161,72 @@
     return PREVIEW_MS;
   }
 
-  // Optional per-level background illustrations; canvas scene is the fallback.
-  LEVELS.forEach(function (lv) {
-    if (!lv.bg) return;
-    var img = new Image();
-    img.onload = function () { lv.bgImg = img; };
-    img.src = lv.bg;
-  });
+  // ---- asset loading ----
+  // Only what the first screen needs is awaited behind the loading screen; the other levels'
+  // backgrounds stream in afterwards. Images are decoded before use so the first frame doesn't hitch.
+  function loadImg(src) {
+    return new Promise(function (res) {
+      var i = new Image();
+      i.onload = function () { (i.decode ? i.decode() : Promise.resolve()).catch(function () {}).then(function () { res(i); }); };
+      i.onerror = function () { res(null); };
+      i.src = src;
+    });
+  }
+  function whenReady(img) {
+    return new Promise(function (res) {
+      if (img.complete && img.naturalWidth) { res(); return; }
+      img.addEventListener("load", function () { res(); }, { once: true });
+      img.addEventListener("error", function () { res(); }, { once: true });
+    });
+  }
+  // Optional per-level background illustrations; the canvas scene is the fallback.
+  function loadBg(idx) {
+    var lv = LEVELS[idx];
+    if (!lv || !lv.bg) return Promise.resolve();
+    if (!lv._bgPromise) lv._bgPromise = loadImg(lv.bg).then(function (img) { if (img) lv.bgImg = img; });
+    return lv._bgPromise;
+  }
+  // Pre-scaled copy of the background, so each frame is a cheap 1:1 blit instead of a big resample.
+  function bgCanvasFor(L) {
+    var img = L.bgImg;
+    if (!img) return null;
+    var s = Math.max(W / img.width, H / img.height);
+    var bw = Math.ceil(img.width * s), bh = Math.ceil(img.height * s);
+    var key = bw + "x" + bh;
+    if (L._bgCache && L._bgCache.key === key) return L._bgCache.canvas;
+    var c = document.createElement("canvas");
+    c.width = bw; c.height = bh;
+    c.getContext("2d").drawImage(img, 0, 0, bw, bh);
+    L._bgCache = { key: key, canvas: c };
+    return c;
+  }
+  function releaseOtherBgCaches(keep) {
+    LEVELS.forEach(function (lv, i) { if (i !== keep) lv._bgCache = null; });
+  }
+  // Character frame with its rim glow baked in (shadowBlur every frame is slow on phones).
+  var glowCache = {};
+  var GLOW_PAD = 14;
+  function glowSprite(name, lv, L) {
+    var key = name + "|" + lv;
+    if (glowCache[key]) return glowCache[key];
+    var img = FRAMES[name];
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    var dw = Math.round(img.naturalWidth * SPRITE_SCALE), dh = Math.round(img.naturalHeight * SPRITE_SCALE);
+    var c = document.createElement("canvas");
+    c.width = dw + GLOW_PAD * 2; c.height = dh + GLOW_PAD * 2;
+    var g = c.getContext("2d");
+    g.shadowColor = L.glow; g.shadowBlur = 8;
+    g.drawImage(img, GLOW_PAD, GLOW_PAD, dw, dh);
+    glowCache[key] = c;
+    return c;
+  }
+  // Warm the HTTP cache so the reveal preview starts instantly when the level is cleared.
+  var warmed = {};
+  function warmAudio(lv) {
+    if (warmed[lv] || typeof fetch !== "function") return;
+    warmed[lv] = true;
+    try { fetch(trackAudioSrc(lv), { cache: "force-cache" }).catch(function () {}); } catch (e) {}
+  }
 
   // Cut-out frames from the character sheet (assets/sprites/frames/).
   var FRAME_NAMES = ["jump-2", "jump-3", "hurt-1", "death-1", "death-2", "death-3", "death-4"];
@@ -372,6 +431,9 @@
   function startLevel(lv) {
     fitCanvas();
     currentLevel = lv;
+    releaseOtherBgCaches(lv);
+    loadBg(lv + 1);
+    warmAudio(lv);
     pipesPassed = 0;
     player = { x: PLAYER_X, y: H / 2, vy: 0 };
     pipes = [];
@@ -678,14 +740,13 @@
     ctx.fillRect(0, 0, W, H);
 
     var baseY = H - GROUND_H - 6;
-    if (L.bgImg) {
-      var s = Math.max(W / L.bgImg.width, H / L.bgImg.height);
-      var bw = L.bgImg.width * s, bh = L.bgImg.height * s;
+    var bgc = bgCanvasFor(L);
+    if (bgc) {
       // Camera starts centred and drifts right by up to BG_PAN px as the level progresses.
       var frac = state === "playing" || state === "gameover" ? pipesPassed / L.need : 0;
       bgPan += (frac - bgPan) * 0.04;
-      var pan = Math.min((bw - W) / 2, BG_PAN) * bgPan;
-      ctx.drawImage(L.bgImg, (W - bw) / 2 - pan, (H - bh) / 2, bw, bh);
+      var pan = Math.min((bgc.width - W) / 2, BG_PAN) * bgPan;
+      ctx.drawImage(bgc, Math.round((W - bgc.width) / 2 - pan), Math.round((H - bgc.height) / 2));
     } else {
       drawSceneForLevel(currentLevel, L, baseY);
     }
@@ -783,14 +844,13 @@
 
       ctx.save();
       ctx.translate(player.x, player.y);
-      if (img && img.complete && img.naturalWidth > 0) {
-        var dw = img.naturalWidth * SPRITE_SCALE, dh = img.naturalHeight * SPRITE_SCALE;
+      var sp = glowSprite(name, currentLevel, L);
+      if (sp) {
+        var dw = sp.width - GLOW_PAD * 2, dh = sp.height - GLOW_PAD * 2;
         ctx.rotate(angle);
-        // Soft rim light so the dark character reads against dark levels.
-        ctx.shadowColor = L.glow;
-        ctx.shadowBlur = 8;
+        // (soft rim light so the dark character reads against dark levels is baked into the sprite)
         var oy = bottomAnchored ? RADIUS - dh : -dh / 2;
-        ctx.drawImage(img, -dw / 2, oy, dw, dh);
+        ctx.drawImage(sp, -dw / 2 - GLOW_PAD, oy - GLOW_PAD);
       } else {
         ctx.beginPath();
         ctx.fillStyle = L.ball;
@@ -829,14 +889,37 @@
   window.addEventListener("orientationchange", scheduleFit);
   fitCanvas();
 
-  renderTracks();
-  if (state === "intro") {
-    showIntro(currentLevel);
-  } else {
-    particles = makeParticles(currentLevel);
-    showFinale();
+  var booted = false;
+  function boot() {
+    if (booted) return;
+    booted = true;
+    renderTracks();
+    if (state === "intro") {
+      showIntro(currentLevel);
+    } else {
+      particles = makeParticles(currentLevel);
+      showFinale();
+    }
+    draw();
+    requestAnimationFrame(loop);
+    // Reveal the game only once a real frame has been painted underneath
+    // (with a timer fallback in case the browser is throttling animation frames).
+    var hidden = false;
+    function hideLoader() {
+      if (hidden) return;
+      hidden = true;
+      loaderEl.classList.add("hide");
+      setTimeout(function () { loaderEl.style.display = "none"; }, 400);
+    }
+    requestAnimationFrame(function () { requestAnimationFrame(hideLoader); });
+    setTimeout(hideLoader, 1200);
+    // Everything else streams in quietly, next levels first.
+    setTimeout(function () {
+      for (var k = 1; k < LEVELS.length; k++) loadBg((currentLevel + k) % LEVELS.length);
+      LEVELS.forEach(function (lv) { if (lv.tile) loadImg(lv.tile); });
+      warmAudio(currentLevel);
+    }, 300);
   }
-  draw();
 
   var lastTime = null;
   function loop(ts) {
@@ -850,6 +933,7 @@
   requestAnimationFrame(loop);
 
   function flapEventHandler(e) {
+    if (!booted) return;
     var tag = e.target.tagName;
     if (tag === "INPUT" || tag === "BUTTON" || tag === "LABEL" || tag === "FORM") return;
     if (state === "finale") return;   // let the end screen scroll / focus the form
@@ -862,6 +946,21 @@
   stageEl.addEventListener("click", flapEventHandler);
   stageEl.addEventListener("touchstart", flapEventHandler, { passive: false });
   window.addEventListener("keydown", function (e) {
-    if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); flap(); }
+    if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); if (booted) flap(); }
   });
+
+  // ---- loading screen: wait for fonts, character, pillars and this level's background ----
+  var loaderEl = document.getElementById("loader");
+  var loaderFill = document.getElementById("loaderFill");
+  (function preload() {
+    var fontLoads = ['700 20px "Pixelify Sans"', 'italic 20px "Instrument Serif"', "20px Shrikhand", '20px "DM Serif Display"']
+      .map(function (f) { return document.fonts && document.fonts.load ? document.fonts.load(f).catch(function () {}) : Promise.resolve(); });
+    var jobs = fontLoads.concat([whenReady(pillarImg)], FRAME_NAMES.map(function (n) { return whenReady(FRAMES[n]); }), [loadBg(currentLevel)]);
+    var done = 0;
+    jobs.forEach(function (p) {
+      p.then(function () { done++; loaderFill.style.width = Math.round((done / jobs.length) * 100) + "%"; });
+    });
+    var timeout = new Promise(function (res) { setTimeout(res, 9000); });   // slow network: start anyway
+    Promise.race([Promise.all(jobs), timeout]).then(boot);
+  })();
 })();

@@ -84,6 +84,13 @@
   .track-row.locked { color: var(--text-secondary); }
   .track-row.unlocked { color: var(--accent); font-weight: 500; }
 
+  /* Loading screen: covers the stage until fonts, character and the first background are ready */
+  .loader { position: absolute; inset: 0; z-index: 200; background: #0f1216; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: opacity 0.35s ease; }
+  .loader.hide { opacity: 0; pointer-events: none; }
+  .loader-bar { width: min(160px, 40%); height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden; }
+  .loader-fill { height: 100%; width: 8%; background: var(--accent); transition: width 0.25s ease; }
+  .loader-text { margin: 0; font-family: var(--font-pixel), "Courier New", monospace; font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(255,255,255,0.6); }
+
   /* HUD is redundant while an overlay (intro / fail / finale) is up */
   .stage:has(.overlay:not(.hide)) .hud { visibility: hidden; }
 

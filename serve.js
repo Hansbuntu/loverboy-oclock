@@ -1,9 +1,11 @@
 // Zero-dependency static server for local dev: node serve.js [port]
+// SLOW=400 node serve.js  adds ~400ms latency per file, to test how the game loads on a slow connection.
 const http = require("http"), fs = require("fs"), path = require("path");
-const port = +process.argv[2] || 5173;
+const port = +process.env.PORT || +process.argv[2] || 5173;
+const slow = +process.env.SLOW || 0;
 const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".png": "image/png",
   ".jpg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".json": "application/json" };
-http.createServer((req, res) => {
+function handle(req, res) {
   let p = decodeURIComponent(req.url.split("?")[0]);
   if (p.endsWith("/")) p += "index.html";
   const file = path.join(__dirname, path.normalize(p));
@@ -21,4 +23,5 @@ http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": type, "Content-Length": st.size, "Accept-Ranges": "bytes" });
     fs.createReadStream(file).pipe(res);
   });
-}).listen(port, () => console.log("http://localhost:" + port));
+}
+http.createServer((req, res) => setTimeout(() => handle(req, res), slow)).listen(port, () => console.log("http://localhost:" + port));
