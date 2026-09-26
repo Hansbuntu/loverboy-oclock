@@ -294,3 +294,50 @@
   @media (max-height: 500px) and (orientation: landscape) {
     .overlay.intro { padding-top: 4%; }
   }
+
+  /* ---------- Phase 4: hearts, pause, settings ---------- */
+  .hud-hearts, .reveal-hearts, .mini-hearts { display: inline-flex; gap: 3px; align-items: center; }
+  .hud-hearts i, .reveal-hearts i, .mini-hearts i { display: block; width: 14px; height: 12px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 6' shape-rendering='crispEdges'%3E%3Cpath fill='%23ff5c86' d='M1 0h2v1H1zM4 0h2v1H4zM0 1h7v2H0zM1 3h5v1H1zM2 4h3v1H2zM3 5h1v1H3z'/%3E%3C/svg%3E") center / contain no-repeat; filter: grayscale(1) brightness(1.6); opacity: 0.35; }
+  .hud-hearts i.got, .reveal-hearts i.got, .mini-hearts i.got { filter: drop-shadow(0 0 4px rgba(255,92,134,0.8)); opacity: 1; }
+  .hud-hearts i.pop, .reveal-hearts i.pop { animation: heartPop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.6); }
+  @keyframes heartPop { 0% { transform: scale(0.4); } 60% { transform: scale(1.5); } 100% { transform: scale(1); } }
+  .reveal-hearts { gap: 8px; margin: 2px 0 0; min-height: 20px; }
+  .reveal-hearts i { width: 22px; height: 19px; }
+  .mini-hearts { gap: 2px; margin-right: 4px; }
+  .mini-hearts i { width: 9px; height: 8px; opacity: 0.25; }
+  .finale-hearts { margin: -2px 0 2px; font-family: var(--font-about); font-style: italic; font-size: 17px; color: #ffd1dc; }
+
+  .hud-btn { pointer-events: auto; display: none; width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.55); background: rgba(10,10,14,0.45); align-items: center; justify-content: center; gap: 4px; cursor: pointer; }
+  .hud-btn.show { display: inline-flex; }
+  .hud-btn span { width: 3px; height: 11px; border-radius: 1px; background: #fff; pointer-events: none; }
+  .stage.paused canvas { filter: saturate(0.5) brightness(0.55); }
+  .pausecard { position: absolute; left: 50%; top: 50%; z-index: 8; min-width: 240px; padding: 18px 22px 14px; border-radius: 16px; background: rgba(12,12,16,0.86); border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 18px 40px rgba(0,0,0,0.5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); color: #fff; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; opacity: 0; pointer-events: none; transform: translate(-50%, -46%) scale(0.96); transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.25); }
+  .pausecard.show { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+  .pause-title { margin: 0; font-family: var(--font-song); font-size: 28px; }
+  .pause-count { display: none; margin: 0; font-family: var(--font-pixel); font-size: 44px; font-weight: 700; color: #ffd27a; }
+  .pausecard.counting .pause-count { display: block; }
+  .pausecard.counting > :not(.pause-count):not(.pause-title) { display: none; }
+  .pause-resume { width: 100%; height: 44px; border: 0; border-radius: 10px; background: linear-gradient(90deg, #ff8fb1, #ffc857); color: #2c0d18; font-weight: 600; font-size: 15px; cursor: pointer; }
+  .pause-row { display: flex; gap: 8px; width: 100%; }
+  .toggle { flex: 1; height: 38px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); color: #fff; font-size: 13px; cursor: pointer; }
+  .toggle .toggle-state { font-weight: 600; color: #ffd27a; }
+  .toggle.off .toggle-state { color: rgba(255,255,255,0.5); }
+  .pause-link { border: 0; background: none; color: rgba(255,255,255,0.7); font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px; }
+
+  .panel-tools { display: inline-flex; gap: 6px; margin-left: auto; }
+  .panel-head .panel-hint { margin-left: auto; }
+  .panel-head .panel-hint + .panel-tools { margin-left: 8px; }
+  .icon-btn { width: 30px; height: 30px; padding: 5px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-secondary); cursor: pointer; display: grid; place-items: center; }
+  .icon-btn svg { width: 18px; height: 18px; pointer-events: none; }
+  .icon-btn .slash { display: none; }
+  .icon-btn.off .slash { display: inline; }
+  .icon-btn.off .wave { display: none; }
+  .icon-btn:not(.off) { color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hud-hearts i.pop, .reveal-hearts i.pop { animation: none; }
+  }
+  @media (max-width: 640px), (max-height: 500px) {
+    .hud-hearts i { width: 12px; height: 10px; }
+    .hud-btn { width: 28px; height: 28px; }
+  }

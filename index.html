@@ -40,6 +40,7 @@
     </div>
     <div class="hud">
       <span id="levelLabel">1 O'Clock</span>
+      <span class="hud-hearts" id="hudHearts" aria-label="Hearts collected"><i></i><i></i><i></i></span>
       <span class="hud-progress">
         <span id="progressLabel">0 / 5</span>
         <svg class="clock" id="clock" viewBox="0 0 40 40" aria-hidden="true">
@@ -50,6 +51,7 @@
           <line class="clock-min" id="clockMin" x1="20" y1="20" x2="20" y2="6.5"></line>
           <circle class="clock-pin" cx="20" cy="20" r="1.8"></circle>
         </svg>
+        <button class="hud-btn" id="pauseBtn" type="button" aria-label="Pause"><span></span><span></span></button>
       </span>
     </div>
     <div class="ready-hint" id="readyHint" aria-live="polite">
@@ -62,6 +64,16 @@
       <p class="fail-title" id="failTitle">So close!</p>
       <p class="fail-score"><span id="failScore">0 / 5</span><span class="fail-best" id="failBest">Best 0</span></p>
       <p class="fail-hint">Tap to retry</p>
+    </div>
+    <div class="pausecard" id="pauseCard" role="dialog" aria-label="Paused">
+      <p class="pause-title">Paused</p>
+      <p class="pause-count" id="pauseCount" aria-live="polite"></p>
+      <button class="pause-resume" id="resumeBtn" type="button">Resume</button>
+      <div class="pause-row">
+        <button class="toggle" type="button" data-toggle="sound">Sound <span class="toggle-state">On</span></button>
+        <button class="toggle" type="button" data-toggle="haptics">Vibration <span class="toggle-state">On</span></button>
+      </div>
+      <button class="pause-link" id="restartBtn" type="button">Restart this hour</button>
     </div>
     <div class="overlay" id="overlay">
       <p class="overlay-kicker" id="overlayKicker" style="display:none;"></p>
@@ -78,6 +90,7 @@
         <div class="finale-art">&#9829;</div>
         <h2 class="finale-heading">You unlocked the whole tape.</h2>
         <p class="finale-body">Seven hours, seven songs. Tap any track to hear it again.</p>
+        <p class="finale-hearts" id="finaleHearts"></p>
         <div class="finale-tape" id="finaleTape"></div>
         </div>
         <div class="finale-divider"></div>
@@ -112,6 +125,7 @@
           <div class="cassette-foot"><i></i><i></i><i></i><i></i></div>
         </div>
         <h2 class="reveal-title" id="revealTitle">Do You Love Me</h2>
+        <p class="reveal-hearts" id="revealHearts" aria-label="Hearts collected"></p>
         <p class="reveal-hint">Now playing a preview &middot; <span id="revealCount">10</span>s</p>
         <div class="reveal-progress"><div class="reveal-progress-fill" id="revealProgress"></div></div>
       </div>
@@ -120,7 +134,11 @@
   </div>
 
   <div class="panel">
-    <div class="panel-head"><h3>The tape</h3><span class="panel-hint" id="tapeHint" style="display:none;">Tap a track to listen</span></div>
+    <div class="panel-head"><h3>The tape</h3><span class="panel-hint" id="tapeHint" style="display:none;">Tap a track to listen</span>
+      <span class="panel-tools">
+        <button class="icon-btn" type="button" data-toggle="sound" aria-label="Sound"><svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M3 7h3l4-3.5v13L6 13H3z"/><path class="wave" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.2a4 4 0 0 1 0 5.6M15.3 5a7 7 0 0 1 0 10"/><path class="slash" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M13 7l5 6M18 7l-5 6"/></svg></button>
+        <button class="icon-btn" type="button" data-toggle="haptics" aria-label="Vibration"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="3" width="7" height="14" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path class="wave" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3.5 7v6M1.5 8.5v3M16.5 7v6M18.5 8.5v3"/><path class="slash" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M2 18L18 2"/></svg></button>
+      </span></div>
     <div class="tracks" id="tracks"></div>
   </div>
 

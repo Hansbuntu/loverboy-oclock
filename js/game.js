@@ -48,6 +48,14 @@
   var finaleTape = document.getElementById("finaleTape");
   var heartRain = document.getElementById("heartRain");
   var tapeHint = document.getElementById("tapeHint");
+  var hudHearts = document.getElementById("hudHearts");
+  var revealHearts = document.getElementById("revealHearts");
+  var finaleHearts = document.getElementById("finaleHearts");
+  var pauseBtn = document.getElementById("pauseBtn");
+  var pauseCard = document.getElementById("pauseCard");
+  var pauseCount = document.getElementById("pauseCount");
+  var resumeBtn = document.getElementById("resumeBtn");
+  var restartBtn = document.getElementById("restartBtn");
 
   // Physics runs at a fixed 60 steps/second (same numbers the levels were tuned with), so jump
   // height and speed are identical on 60, 90 and 120 Hz screens. Rendering interpolates between steps.
@@ -81,6 +89,14 @@
   function saveProgress() {
     try { window.localStorage.setItem(STORAGE_KEY, String(completedLevels)); } catch (e) {}
   }
+  var HEARTS_KEY = "loverboy_oclock_hearts_v1", SETTINGS_KEY = "loverboy_oclock_settings_v1";
+  var HEARTS_PER_LEVEL = 3;
+  var bestHearts = [];
+  try { bestHearts = JSON.parse(window.localStorage.getItem(HEARTS_KEY)) || []; } catch (e) { bestHearts = []; }
+  var settings = { sound: true, haptics: true };
+  try { var st = JSON.parse(window.localStorage.getItem(SETTINGS_KEY)); if (st) { settings.sound = st.sound !== false; settings.haptics = st.haptics !== false; } } catch (e) {}
+  function saveHearts() { try { window.localStorage.setItem(HEARTS_KEY, JSON.stringify(bestHearts)); } catch (e) {} }
+  function saveSettings() { try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
   function saveBest() {
     try { window.localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch (e) {}
   }
@@ -182,7 +198,7 @@
     s.stop(t + dur + 0.05);
   }
   function sfx(fn) {
-    if (!audioCtx || !sfxBus) return;
+    if (!audioCtx || !sfxBus || !settings.sound) return;
     try { fn(audioCtx.currentTime + 0.005); } catch (e) {}
   }
   var PENTA = [0, 2, 4, 7, 9];
@@ -235,6 +251,13 @@
       });
     });
   }
+  function sfxHeart() {
+    sfx(function (t) {
+      voice("sine", 1318.5, 1318.5, t, 0.18, 0.12, { verb: true });
+      voice("sine", 1760, 1760, t + 0.07, 0.3, 0.12, { verb: true });
+      voice("triangle", 2637, 2637, t + 0.13, 0.22, 0.04, { verb: true });
+    });
+  }
   function sfxThunder() {
     sfx(function (t) {
       noise(t, 1.9, 0.3, "lowpass", 240, 70, 0.7);
@@ -254,8 +277,8 @@
   // Haptics. Android/Chrome: Vibration API. iPhone Safari has no Vibration API, but (iOS 17.4+)
   // toggling a hidden <input type=checkbox switch> gives the system's light haptic tick.
   // =====================================================================================
-  var HAPTIC_PATTERNS = { flap: [10], pass: [25], near: [14, 30, 14], land: [30], fail: [50, 40, 150], unlock: [30, 50, 30, 50, 100] };
-  var HAPTIC_TICKS = { flap: 1, pass: 1, near: 2, land: 1, fail: 2, unlock: 3 };
+  var HAPTIC_PATTERNS = { heart: [12, 24, 18], flap: [10], pass: [25], near: [14, 30, 14], land: [30], fail: [50, 40, 150], unlock: [30, 50, 30, 50, 100] };
+  var HAPTIC_TICKS = { heart: 2, flap: 1, pass: 1, near: 2, land: 1, fail: 2, unlock: 3 };
   var canVibrate = typeof navigator.vibrate === "function";
   var hapticLabel = null;
   (function setupSwitchHaptic() {
@@ -272,6 +295,7 @@
     } catch (e) { hapticLabel = null; }
   })();
   function haptic(kind) {
+    if (!settings.haptics) return;
     if (canVibrate) {
       try { navigator.vibrate(HAPTIC_PATTERNS[kind] || 20); } catch (e) {}
       return;
@@ -408,10 +432,10 @@
       var pr = previewAudio.play();
       var done = function () {
         if (currentAudioTrack === -1) { try { previewAudio.pause(); } catch (e) {} }
-        previewAudio.muted = false;
+        previewAudio.muted = !settings.sound;
       };
       if (pr && pr.then) pr.then(done, done); else done();
-    } catch (e) { previewAudio.muted = false; }
+    } catch (e) { previewAudio.muted = !settings.sound; }
   }
   ["touchend", "click", "keydown"].forEach(function (ev) {
     window.addEventListener(ev, unlockAudio, { once: true, passive: true, capture: true });
@@ -590,10 +614,21 @@
   // =====================================================================================
   // Pillars
   // =====================================================================================
-  function gapMarginedGapY(lv) {
+  // Quiet help: after repeated fails on the same level (this visit), gaps widen by 8 px per step
+  // (fails 4-6: +8, 7-9: +16, 10+: +24) and slides get a little shorter. Resets when the level is cleared.
+  var failStreak = [];
+  function assistStep(lv) { return Math.min(3, Math.max(0, Math.floor(((failStreak[lv] || 0) - 1) / 3))); }
+  function gapFor(lv) { return LEVELS[lv].gapH + 8 * assistStep(lv); }
+  function gapMarginedGapY(lv, gh) {
     var margin = 50;
-    var gh = LEVELS[lv].gapH;
     return margin + gh / 2 + Math.random() * (H - GROUND_H - margin * 2 - gh);
+  }
+  var pipeSeq = 0, heartSlots = [], heartsGot = 0;
+  function pickHeartSlots(need) {
+    var idx = [];
+    for (var i = 0; i < need - 1; i++) idx.push(i);   // never after the last pillar (the level ends there)
+    for (var j = idx.length - 1; j > 0; j--) { var k = Math.floor(Math.random() * (j + 1)); var t = idx[j]; idx[j] = idx[k]; idx[k] = t; }
+    return idx.slice(0, Math.min(HEARTS_PER_LEVEL, need));
   }
   var MOVE_FREEZE_X = PLAYER_X + 60;   // gap locks just before it reaches the player
   var MOVE_ZONE_MIN = PLAYER_X + 150;
@@ -602,8 +637,9 @@
   // Each moving pillar picks its own trigger points, so nobody can time it.
   function makePipe(x, lv) {
     var L = LEVELS[lv];
-    var p = { x: x, px: x, gapH: L.gapH, passed: false, mv: null, minClear: 999 };
-    p.gapY = p.pgy = gapMarginedGapY(lv);
+    var gh = gapFor(lv);
+    var p = { x: x, px: x, gapH: gh, passed: false, mv: null, minClear: 999, amp: L.move ? L.move.amp * (1 - 0.12 * assistStep(lv)) : 0 };
+    p.gapY = p.pgy = gapMarginedGapY(lv, gh);
     if (L.move && Math.random() < L.move.chance) {
       p.mv = {
         left: Math.random() < 0.4 ? 2 : 1,          // 1-2 shifts
@@ -611,11 +647,18 @@
         active: false, target: p.gapY
       };
     }
+    // Collectible heart: 3 of the level's pillars have one floating in the open air after them, 30-70 px
+    // above or below that gap, so collecting it is a deliberate detour (and a recovery before the next gap).
+    p.seq = pipeSeq++;
+    if (heartSlots.indexOf(p.seq) >= 0) {
+      var hy = p.gapY + (Math.random() < 0.5 ? -1 : 1) * rand(30, 70);
+      p.heart = { dx: PIPE_WIDTH + (PIPE_SPACING - PIPE_WIDTH) / 2, y: clamp(hy, 70, H - GROUND_H - 60), taken: false, ph: rand(0, 6.28) };
+    }
     // Decorated standing pillars need room for their cap + base, even after a slide.
     p.variant = "plain";
     p.seed = Math.random() * 1000;
     if (Math.random() < 0.5) {
-      var room = H - GROUND_H - (p.gapY + p.gapH / 2) - (p.mv ? L.move.amp : 0);
+      var room = H - GROUND_H - (p.gapY + p.gapH / 2) - (p.mv ? p.amp : 0);
       var fits = SPECIAL_PILLARS.filter(function (k) {
         var t = PILLAR_TYPES[k];
         return room >= (t.capH + t.baseH) * PILLAR_SCALE + 14;
@@ -626,7 +669,7 @@
   }
   function startMove(p, L) {
     var lo = 50 + p.gapH / 2, hi = H - GROUND_H - 50 - p.gapH / 2;
-    var dist = rand(0.45, 1) * L.move.amp;
+    var dist = rand(0.45, 1) * p.amp;
     var dir = Math.random() < 0.5 ? -1 : 1;
     var t = p.gapY + dir * dist;
     if (t < lo || t > hi) {                      // hit a wall of the play area: go the other way
@@ -711,6 +754,7 @@
     } else if (type === "dust") {
       for (i = 0; i < 30; i++) P.push({ k: "mote", x: rand(0, W), y: rand(0, floor), vx: rand(-0.25, 0.05), vy: rand(-0.12, 0.08), ph: rand(0, 6.28), r: rand(1, 2.2) });
     }
+    if (lowQuality) P.length = Math.ceil(P.length / 2);
     P.forEach(function (p) { if (p.x === undefined) { p.x = p.bx; p.y = p.by; } p.px = p.x; p.py = p.y; });
   }
   function stepWeather() {
@@ -1118,7 +1162,8 @@
         row.setAttribute("aria-label", "Play preview: " + L.track);
         row.addEventListener("click", (function (idx) { return function (e) { e.stopPropagation(); toggleJuke(idx); }; })(i));
         row.innerHTML = '<span class="track-progress"></span><img class="track-tile" alt="" src="' + L.tile + '">' +
-          '<span class="track-name"></span><span class="track-action"><span class="eq"><i></i><i></i><i></i></span><span class="play-ico"></span></span>';
+          '<span class="track-name"></span><span class="track-action"><span class="mini-hearts">' + heartIcons(bestHearts[i] || 0, HEARTS_PER_LEVEL) + '</span>' +
+          '<span class="eq"><i></i><i></i><i></i></span><span class="play-ico"></span></span>';
       } else {
         row.innerHTML = '<span class="track-lock">' + LOCK_SVG + '</span><span class="track-name"></span><span class="track-action">locked</span>';
       }
@@ -1266,6 +1311,10 @@
     loadBg(lv + 1);
     warmAudio(lv);
     pipesPassed = 0;
+    pipeSeq = 0;
+    heartSlots = pickHeartSlots(LEVELS[lv].need);
+    heartsGot = 0;
+    setHudHearts(0, false);
     player = standingPlayer();                 // every attempt starts on the pedestal
     launch = { x: PLAYER_X, px: PLAYER_X };
     pipes = [];
@@ -1373,6 +1422,38 @@
     if (canVibrate) haptic("flap");
   }
 
+  function collectHeart(p) {
+    p.heart.taken = true;
+    heartsGot++;
+    var x = p.x + p.heart.dx, y = p.heart.y;
+    ringFx(x, y, "#ff8fb1", 8, 34);
+    sparkBurst(x, y, 10, "#ffd1dc", 3);
+    for (var i = 0; i < 5; i++) {
+      addFx({ k: "heart", layer: 1, x: x, y: y, vx: rand(-1.6, 1.6), vy: rand(-2.6, -0.8), g: 0.06, drag: 0.97, life: Math.round(rand(24, 36)), size: rand(0.9, 1.4), color: "#ff8fb1" });
+    }
+    heartBoost = Math.max(heartBoost, 0.6);
+    setHudHearts(heartsGot, true);
+    sfxHeart();
+    haptic("heart");
+  }
+  function setHearts(el, n, animate) {
+    if (!el) return;
+    var icons = el.children;
+    for (var i = 0; i < icons.length; i++) {
+      var got = i < n;
+      if (animate && got && !icons[i].classList.contains("got")) {
+        icons[i].classList.remove("pop"); void icons[i].offsetWidth; icons[i].classList.add("pop");
+      }
+      icons[i].classList.toggle("got", got);
+    }
+  }
+  function setHudHearts(n, animate) { setHearts(hudHearts, n, animate); }
+  function heartIcons(n, total) {
+    var s = "";
+    for (var i = 0; i < total; i++) s += '<i class="' + (i < n ? "got" : "") + '"></i>';
+    return s;
+  }
+
   function addTrauma(v) { trauma = Math.min(1, trauma + v * (reduceMotion ? 0.35 : 1)); }
 
   // kind: "ground", "top" (hit the hanging pillar) or "bottom" (hit the standing pillar)
@@ -1402,6 +1483,7 @@
     failShownAt = performance.now();
     var lv = currentLevel, need = LEVELS[lv].need, prev = best[lv] || 0;
     var isBest = pipesPassed > prev;
+    failStreak[lv] = (failStreak[lv] || 0) + 1;
     if (isBest) { best[lv] = pipesPassed; saveBest(); }
     failTitle.textContent = pipesPassed === need - 1 ? "So close!" : isBest && prev > 0 ? "New best" : pipesPassed === 0 ? "Try again" : "Keep going";
     failScore.textContent = pipesPassed + " / " + need;
@@ -1450,6 +1532,9 @@
     pipes = [];
     overlay.classList.remove("intro");
     buildFinaleTape();
+    var total = 0;
+    for (var hl = 0; hl < LEVELS.length; hl++) total += bestHearts[hl] || 0;
+    finaleHearts.textContent = "You found " + total + " of " + LEVELS.length * HEARTS_PER_LEVEL + " hearts" + (total === LEVELS.length * HEARTS_PER_LEVEL ? " \u2014 every single one." : ". Replay any hour to find the rest.");
     startHeartRain();
     hideFailCard();
     readyHint.classList.remove("show");
@@ -1501,6 +1586,8 @@
     sfxClear();
     haptic("pass");
     if ((best[currentLevel] || 0) < L.need) { best[currentLevel] = L.need; saveBest(); }
+    failStreak[currentLevel] = 0;
+    if ((bestHearts[currentLevel] || 0) < heartsGot) { bestHearts[currentLevel] = heartsGot; saveHearts(); }
   }
 
   var revealShownAt = 0, revealEndsAt = 0;
@@ -1524,6 +1611,8 @@
     stopJuke(true);
     revealNum.textContent = String(lv + 1).padStart(2, "0");
     revealTitle.textContent = L.track;
+    revealHearts.innerHTML = heartIcons(0, HEARTS_PER_LEVEL);
+    (function (n) { setTimeout(function () { setHearts(revealHearts, n, true); }, 450); })(heartsGot);
     revealEndsAt = 0;
     revealCount.textContent = String(Math.round(PREVIEW_MS / 1000));
     revealEl.classList.add("show");
@@ -1599,7 +1688,7 @@
 
   function flap() {
     ensureAudio();
-    if (wiping || state === "wipe") return;
+    if (wiping || state === "wipe" || paused) return;
     if (state === "intro") { launchFromIntro(currentLevel); return; }
     if (state === "ready") { stopJuke(true); startPlay(); return; }
     if (state === "gameover") {
@@ -1771,6 +1860,10 @@
           vx: -L.speed * 0.85 + rand(-0.3, 0.3), vy: -rand(0.6, 1.5), g: -0.01, drag: 0.99, life: Math.round(rand(18, 34)), color: "#ffb45a" });
       }
 
+      if (p.heart && !p.heart.taken) {
+        var hx = p.x + p.heart.dx - player.x, hy = p.heart.y - player.y;
+        if (hx * hx + hy * hy < (RADIUS + 11) * (RADIUS + 11)) collectHeart(p);
+      }
       var withinX = player.x + RADIUS > p.x && player.x - RADIUS < p.x + PIPE_WIDTH;
       if (withinX) {
         var gapTop = p.gapY - p.gapH / 2;
@@ -2101,6 +2194,23 @@
     for (var fxx = fx0; fxx < W + 2; fxx += FG_TW) ctx.drawImage(fg.canvas, fxx, H - FG_H, FG_TW + 0.5, FG_H);
     ctx.globalAlpha = 1;
 
+    if (pipes.length && (state === "playing" || state === "clear" || state === "dying" || state === "gameover" || state === "ready")) {
+      for (var hi = 0; hi < pipes.length; hi++) {
+        var hp = pipes[hi];
+        if (!hp.heart || hp.heart.taken) continue;
+        var hxp = lerp(hp.px, hp.x, alpha) + hp.heart.dx;
+        if (hxp < -20 || hxp > W + 20) continue;
+        var hyp = hp.heart.y + Math.sin(weather.t / 300 + hp.heart.ph) * 3;
+        ctx.globalCompositeOperation = "lighter";
+        glowAt("#ff4d7a", hxp, hyp, 18, 0.5);
+        ctx.globalCompositeOperation = "source-over";
+        drawHeart(hxp, hyp, 2.1, "#ff4d7a", 1);
+        ctx.fillStyle = "#ffe3ea";
+        ctx.fillRect(hxp - 2.1 * 2.4, hyp - 2.1 * 2, 2.1, 2.1);
+        ctx.globalAlpha = 1;
+      }
+    }
+
     drawFx(0, alpha);
     if (player) drawPlayer(L, alpha);
     drawFx(1, alpha);
@@ -2211,18 +2321,115 @@
     }, 300);
   }
 
-  var lastTime = null, acc = 0;
+  // ---- Pause: a button during play, Esc/P on a keyboard, and automatically when the app is hidden.
+  var paused = false, resumeTimer = null;
+  function pauseGame() {
+    if (state !== "playing" || paused) return;
+    paused = true;
+    clearTimeout(resumeTimer);
+    pauseCount.textContent = "";
+    pauseCard.classList.remove("counting");
+    pauseCard.classList.add("show");
+    stageEl.classList.add("paused");
+    muffle(true);
+    setMusicVolume(MUSIC_VOL * 0.5, 0.3);
+    syncToggles();
+  }
+  // A short 3-2-1 so nobody resumes straight into a pillar.
+  function resumeGame() {
+    if (!paused || pauseCard.classList.contains("counting")) return;
+    pauseCard.classList.add("counting");
+    var n = 3;
+    pauseCount.textContent = n;
+    (function tick() {
+      resumeTimer = setTimeout(function () {
+        n--;
+        if (n > 0) { pauseCount.textContent = n; tick(); return; }
+        paused = false;
+        pauseCard.classList.remove("show", "counting");
+        stageEl.classList.remove("paused");
+        muffle(false);
+        setMusicVolume(MUSIC_VOL, 0.3);
+      }, 450);
+    })();
+  }
+  pauseBtn.addEventListener("click", function (e) { e.stopPropagation(); pauseGame(); });
+  resumeBtn.addEventListener("click", function (e) { e.stopPropagation(); resumeGame(); });
+  restartBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    clearTimeout(resumeTimer);
+    paused = false;
+    pauseCard.classList.remove("show", "counting");
+    stageEl.classList.remove("paused");
+    tapeStop();
+    enterReady(currentLevel);
+  });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) pauseGame(); });
+  window.addEventListener("pagehide", pauseGame);
+
+  // ---- Settings: sound + vibration, remembered on this device
+  var toggles = document.querySelectorAll("[data-toggle]");
+  function syncToggles() {
+    for (var i = 0; i < toggles.length; i++) {
+      var key = toggles[i].getAttribute("data-toggle"), on = settings[key];
+      toggles[i].setAttribute("aria-pressed", on ? "true" : "false");
+      toggles[i].classList.toggle("off", !on);
+      var lbl = toggles[i].querySelector(".toggle-state");
+      if (lbl) lbl.textContent = on ? "On" : "Off";
+    }
+    previewAudio.muted = !settings.sound;
+    jukeAudio.muted = !settings.sound;
+  }
+  for (var ti = 0; ti < toggles.length; ti++) {
+    toggles[ti].addEventListener("click", function (e) {
+      e.stopPropagation();
+      var key = this.getAttribute("data-toggle");
+      settings[key] = !settings[key];
+      saveSettings();
+      syncToggles();
+      if (key === "haptics" && settings.haptics) haptic("pass");
+    });
+  }
+  syncToggles();
+
+  // ---- Automatic low-quality mode for phones that can't hold the frame rate
+  var lowQuality = false, perfN = 0, perfSlow = 0, perfLast = 0;
+  function sampleFrame(ts) {
+    if (lowQuality || state !== "playing" || paused) { perfLast = ts; return; }
+    var ft = ts - perfLast;
+    perfLast = ts;
+    if (ft <= 0 || ft > 200) return;
+    perfN++;
+    if (ft > 24) perfSlow++;
+    if (perfN >= 180) {
+      if (perfSlow > 50) {
+        lowQuality = true;
+        MAX_BACKING_PX = 1300000;             // draw fewer pixels
+        fitCanvas(true);
+        weather.parts.length = Math.ceil(weather.parts.length / 2);   // and half the weather
+      }
+      perfN = perfSlow = 0;
+    }
+  }
+
+  var lastTime = null, acc = 0, shownState = "";
   function loop(ts) {
     if (lastTime === null) lastTime = ts;
     acc += Math.min(100, ts - lastTime);   // after a stall, don't fast-forward the world
     lastTime = ts;
     var steps = 0;
+    if (paused) acc = 0;
     while (acc >= STEP_MS && steps < 8) {
       update();
       acc -= STEP_MS;
       steps++;
     }
     if (steps >= 8) acc = 0;
+    sampleFrame(ts);
+    if (state !== shownState) {
+      shownState = state;
+      pauseBtn.classList.toggle("show", state === "playing");
+    }
     draw(clamp(acc / STEP_MS, 0, 1));
     tickAudio(performance.now());
     tickJuke();
@@ -2244,6 +2451,7 @@
   stageEl.addEventListener("click", flapEventHandler);
   stageEl.addEventListener("touchstart", flapEventHandler, { passive: false });
   window.addEventListener("keydown", function (e) {
+    if (e.code === "Escape" || e.code === "KeyP") { if (paused) resumeGame(); else pauseGame(); return; }
     if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); if (booted) flap(); }
   });
 
