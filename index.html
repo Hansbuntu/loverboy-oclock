@@ -29,10 +29,21 @@
       <p class="loader-text">Loading</p>
     </div>
     <div class="hud">
-      <span id="levelLabel">Level 1 of 7</span>
-      <span id="progressLabel">0 / 5</span>
+      <span id="levelLabel">1 O'Clock</span>
+      <span class="hud-progress">
+        <span id="progressLabel">0 / 5</span>
+        <svg class="clock" id="clock" viewBox="0 0 40 40" aria-hidden="true">
+          <circle class="clock-face" cx="20" cy="20" r="17"></circle>
+          <circle class="clock-fill" id="clockFill" cx="20" cy="20" r="8.5"></circle>
+          <g class="clock-ticks" id="clockTicks"></g>
+          <line class="clock-hour" id="clockHour" x1="20" y1="20" x2="20" y2="12.5"></line>
+          <line class="clock-min" id="clockMin" x1="20" y1="20" x2="20" y2="6.5"></line>
+          <circle class="clock-pin" cx="20" cy="20" r="1.8"></circle>
+        </svg>
+      </span>
     </div>
     <div class="ready-hint" id="readyHint" aria-live="polite">
+      <p class="ready-kicker" id="readyKicker">1 O'Clock</p>
       <p class="ready-title" id="readyTitle">Get ready</p>
       <span class="tap-ring" aria-hidden="true"></span>
       <p class="ready-sub">Tap to fly</p>
@@ -43,6 +54,7 @@
       <p class="fail-hint">Tap to retry</p>
     </div>
     <div class="overlay" id="overlay">
+      <p class="overlay-kicker" id="overlayKicker" style="display:none;"></p>
       <h2 id="overlayTitle">Loverboy O'Clock</h2>
       <p id="overlayText">Tap to start Level 1.</p>
       <div class="intro-details" id="introDetails" style="display:none;">

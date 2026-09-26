@@ -36,6 +36,12 @@
   var failTitle = document.getElementById("failTitle");
   var failScore = document.getElementById("failScore");
   var failBest = document.getElementById("failBest");
+  var overlayKicker = document.getElementById("overlayKicker");
+  var readyKicker = document.getElementById("readyKicker");
+  var clockEl = document.getElementById("clock");
+  var clockMin = document.getElementById("clockMin");
+  var clockHour = document.getElementById("clockHour");
+  var clockFill = document.getElementById("clockFill");
 
   // Physics runs at a fixed 60 steps/second (same numbers the levels were tuned with), so jump
   // height and speed are identical on 60, 90 and 120 Hz screens. Rendering interpolates between steps.
@@ -78,14 +84,25 @@
   //                                                           \-> clear -> reveal -> intro (next) / finale
   var state = completedLevels >= LEVELS.length ? "finale" : "intro";
   var stateT = 0;          // ms spent in the current state (advanced by the fixed step)
-  var player = null, pipes = [], pipesPassed = 0, ambient = null, fx = [];
-  var hitStop = 0, trauma = 0, flash = 0, bgPan = 0, failShownAt = 0;
+  var player = null, pipes = [], pipesPassed = 0, fx = [];
+  var hitStop = 0, trauma = 0, flash = 0, flashColor = "#fff", bgPan = 0, failShownAt = 0;
+  var groundX = 0, pGroundX = 0, heartBoost = 0;
   var previewTimer = null;
   var currentAudioTrack = -1;
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function rand(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function hexRgb(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgba(hex, a) { var c = hexRgb(hex); return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
+  function mix(hexA, hexB, t) {
+    var a = hexRgb(hexA), b = hexRgb(hexB);
+    return "rgb(" + Math.round(lerp(a[0], b[0], t)) + "," + Math.round(lerp(a[1], b[1], t)) + "," + Math.round(lerp(a[2], b[2], t)) + ")";
+  }
 
   // =====================================================================================
   // Sound: everything is synthesized with Web Audio (no files). Chimes share a small echo.
@@ -145,6 +162,7 @@
   function noise(t, dur, peak, type, f0, f1, q) {
     var s = audioCtx.createBufferSource();
     s.buffer = noiseBuf;
+    s.loop = true;
     var f = audioCtx.createBiquadFilter();
     f.type = type; f.Q.value = q || 1;
     f.frequency.setValueAtTime(f0, t);
@@ -209,6 +227,12 @@
         var n = noteHz(784, i * 2);
         voice("triangle", n, n, t + 0.08 + i * 0.06, 0.3, 0.05, { verb: true });
       });
+    });
+  }
+  function sfxThunder() {
+    sfx(function (t) {
+      noise(t, 1.9, 0.3, "lowpass", 240, 70, 0.7);
+      voice("sine", 55, 36, t, 1.5, 0.16, { attack: 0.08 });
     });
   }
   function sfxUnlock() {
@@ -439,8 +463,15 @@
     var g = c.getContext("2d");
     g.imageSmoothingEnabled = s * SCALE < 2;
     g.drawImage(img, ((bw - W) / 2) / s, ((bh - H) / 2) / s, vw / s, H / s, 0, 0, c.width, c.height);
-    L._bgCache = { key: key, canvas: c, panMax: panMax, vw: vw };
+    L._bgCache = { key: key, canvas: c, panMax: panMax, vw: vw, bw: bw, bh: bh, offX: (bw - W) / 2, offY: (bh - H) / 2 };
     return L._bgCache;
+  }
+  // Where a point of the background image (u, v as fractions) currently is on screen.
+  function bgPoint(L, u, v) {
+    var bg = L._bgCache;
+    if (!bg) return null;
+    var pan = Math.round(bg.panMax * bgPan * SCALE) / SCALE;
+    return { x: u * bg.bw - bg.offX - pan, y: v * bg.bh - bg.offY };
   }
   function releaseOtherBgCaches(keep) {
     LEVELS.forEach(function (lv, i) { if (i !== keep) lv._bgCache = null; });
@@ -485,32 +516,69 @@
     return hit;
   }
 
-  // Pillar obstacle art, sliced into cap / repeatable shaft / base (source px).
-  var PILLAR = { src: "assets/obstacles/pillar-1.png", capH: 28, baseH: 15, tileY: 42, tileH: 28, scale: 1.55 };
-  var pillarImg = new Image();
-  pillarImg.src = PILLAR.src;
-  var pillarTints = {};
-  // Per-level colour cast so the stone belongs to each level's palette.
-  function pillarFor(lv, L) {
-    if (!pillarImg.complete || !pillarImg.naturalWidth) return null;
-    if (pillarTints[lv]) return pillarTints[lv];
+  // Recolour art toward a level's palette (keeps the pixel detail, changes the cast).
+  function tinted(src, L) {
+    var w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
     var c = document.createElement("canvas");
-    c.width = pillarImg.naturalWidth; c.height = pillarImg.naturalHeight;
+    c.width = w; c.height = h;
     var g = c.getContext("2d");
-    g.drawImage(pillarImg, 0, 0);
+    g.drawImage(src, 0, 0);
     g.globalCompositeOperation = "color";
     g.globalAlpha = 0.6;
     g.fillStyle = L.glow;
-    g.fillRect(0, 0, c.width, c.height);
+    g.fillRect(0, 0, w, h);
     g.globalCompositeOperation = "lighter";   // lift the dark stone toward the level colour
     g.globalAlpha = 0.28;
     g.fillStyle = L.pipe;
-    g.fillRect(0, 0, c.width, c.height);
+    g.fillRect(0, 0, w, h);
     g.globalAlpha = 1;
     g.globalCompositeOperation = "destination-in";
-    g.drawImage(pillarImg, 0, 0);
-    pillarTints[lv] = c;
+    g.drawImage(src, 0, 0);
     return c;
+  }
+
+  // Pillar art, sliced into a decorated cap / repeatable shaft / base (source px). Hanging pillars are
+  // always "plain"; standing ones are sometimes a banner or torch pillar. Each type is widened so its
+  // shaft is never narrower than the collision box (shaftW source px -> SHAFT_W logical px): the art
+  // may overhang the hitbox a little (forgiving), but never the other way round.
+  var PILLAR_SCALE = 1.55, SHAFT_W = 56;
+  var PILLAR_TYPES = {
+    plain:  { src: "assets/obstacles/pillar-1.png", capH: 28, baseH: 15, tileY: 42, tileH: 28, shaftW: 36 },
+    banner: { src: "assets/obstacles/pillar-3.png", capH: 54, baseH: 27, tileY: 58, tileH: 20, shaftW: 29 },
+    torch:  { src: "assets/obstacles/pillar-5.png", capH: 40, baseH: 19, tileY: 52, tileH: 30, shaftW: 26, flameY: 8 }
+  };
+  var SPECIAL_PILLARS = ["banner", "torch"];
+  Object.keys(PILLAR_TYPES).forEach(function (k) {
+    var t = PILLAR_TYPES[k];
+    t.sx = Math.max(PILLAR_SCALE, SHAFT_W / t.shaftW);
+    t.img = new Image();
+    t.img.src = t.src;
+  });
+  var pillarImg = PILLAR_TYPES.plain.img;
+  var pillarTints = {};
+  function pillarFor(lv, L, variant) {
+    var t = PILLAR_TYPES[variant] || PILLAR_TYPES.plain;
+    if (!t.img.complete || !t.img.naturalWidth) return null;
+    var key = lv + "|" + variant;
+    return pillarTints[key] || (pillarTints[key] = tinted(t.img, L));
+  }
+
+  // Ground: a stone-and-moss strip from the platform tiles, mirrored every other tile, tinted per level.
+  var groundImg = new Image();
+  groundImg.src = "assets/ground/ground-tile.png";
+  var GROUND_SCALE = 0.75;
+  function groundStripFor(L) {
+    if (L._ground) return L._ground;
+    if (!groundImg.complete || !groundImg.naturalWidth) return null;
+    var tw = groundImg.naturalWidth, th = groundImg.naturalHeight;
+    var u = document.createElement("canvas");
+    u.width = tw * 2; u.height = th;
+    var g = u.getContext("2d");
+    g.drawImage(groundImg, 0, 0);
+    g.translate(tw * 2, 0);
+    g.scale(-1, 1);
+    g.drawImage(groundImg, 0, 0);
+    return (L._ground = tinted(u, L));
   }
 
   // =====================================================================================
@@ -536,6 +604,17 @@
         nextX: rand(MOVE_ZONE_MIN + 40, W - 40),    // first shift starts somewhere on screen
         active: false, target: p.gapY
       };
+    }
+    // Decorated standing pillars need room for their cap + base, even after a slide.
+    p.variant = "plain";
+    p.seed = Math.random() * 1000;
+    if (Math.random() < 0.5) {
+      var room = H - GROUND_H - (p.gapY + p.gapH / 2) - (p.mv ? L.move.amp : 0);
+      var fits = SPECIAL_PILLARS.filter(function (k) {
+        var t = PILLAR_TYPES[k];
+        return room >= (t.capH + t.baseH) * PILLAR_SCALE + 14;
+      });
+      if (fits.length) p.variant = pick(fits);
     }
     return p;
   }
@@ -572,22 +651,329 @@
   }
 
   // =====================================================================================
-  // Particles: ambient drift, plus effects (heart puffs, dust, sparks, stone debris, rings, text)
+  // Particles: level atmosphere (weather, foreground, vignette) plus effects (heart puffs, dust, sparks, stone debris, rings, text)
   // =====================================================================================
-  function makeAmbient() {
-    var arr = [];
-    for (var i = 0; i < 16; i++) {
-      var y = Math.random() * (H - GROUND_H);
-      arr.push({
-        x: Math.random() * W, y: y, py: y,
-        r: 1.5 + Math.random() * 2.2,
-        speed: 0.15 + Math.random() * 0.3,
-        drift: (Math.random() - 0.5) * 0.2,
-        alpha: 0.15 + Math.random() * 0.25
+  // ---- Atmosphere: per-level weather (config fx.weather) + light on features painted in the background
+  var weather = { lv: -1, type: "", parts: [], birds: [], t: 0 };
+  var glowSprites = {};
+  // Soft round glow in one colour, cached at device resolution; drawn scaled with "lighter".
+  function glowDot(color) {
+    var key = color + "@" + SCALE;
+    if (glowSprites[key]) return glowSprites[key];
+    var n = Math.max(8, Math.ceil(64 * SCALE)), c = document.createElement("canvas");
+    c.width = c.height = n;
+    var g = c.getContext("2d"), gr = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, rgba(color, 1));
+    gr.addColorStop(0.25, rgba(color, 0.55));
+    gr.addColorStop(1, rgba(color, 0));
+    g.fillStyle = gr;
+    g.fillRect(0, 0, n, n);
+    return (glowSprites[key] = c);
+  }
+  function glowAt(color, x, y, r, a) {
+    ctx.globalAlpha = a;
+    ctx.drawImage(glowDot(color), x - r, y - r, r * 2, r * 2);
+  }
+  function newPetal(cols, anywhere) {
+    return { k: "petal", x: rand(0, W + 60), y: anywhere ? rand(-20, H) : rand(-30, -8), vx: -rand(0.4, 1.2), vy: rand(0.5, 1.1),
+      rot: rand(0, 6.28), vr: rand(-0.08, 0.08), ph: rand(0, 6.28), s: rand(2.2, 3.6), c: pick(cols) };
+  }
+  function newEmber(anywhere) {
+    return { k: "ember", x: rand(0, W), y: anywhere ? rand(0, H) : H + rand(0, 20), vx: rand(-0.3, 0.3), vy: -rand(0.5, 1.3),
+      ph: rand(0, 6.28), r: rand(1.3, 2.6), c: pick(["#ffb347", "#ff7a3d", "#ffd27a"]) };
+  }
+  function newBird(anywhere) {
+    return { x: anywhere ? rand(W * 0.2, W + 80) : W + rand(20, 160), y: rand(H * 0.08, H * 0.34), vx: -rand(0.35, 0.75), ph: rand(0, 6.28), s: rand(3, 5) };
+  }
+  var PETALS_RED = ["#e0506f", "#ff7a93", "#b9344f"], PETALS_GOLD = ["#ffe7a3", "#ffd06b", "#fff6d8"];
+  function initWeather(lv) {
+    var L = LEVELS[lv], type = (L.fx && L.fx.weather) || "", floor = H - GROUND_H, i;
+    weather = { lv: lv, type: type, parts: [], birds: [], t: 0, boltT: -1, nextBolt: rand(2500, 5000), thunderAt: Infinity, laser: 1 };
+    var P = weather.parts;
+    if (type === "mist") {
+      for (i = 0; i < 26; i++) P.push({ k: "star", x: rand(0, W), y: rand(4, H * 0.42), r: rand(0.6, 1.3), ph: rand(0, 6.28), sp: rand(0.03, 0.08) });
+      for (i = 0; i < 7; i++) P.push({ k: "fog", x: rand(-60, W + 60), y: rand(H * 0.4, floor), r: rand(70, 140), vx: -rand(0.12, 0.35), a: rand(0.05, 0.09), front: i < 3 });
+    } else if (type === "petals" || type === "sunrise") {
+      for (i = 0; i < 24; i++) P.push(newPetal(type === "petals" ? PETALS_RED : PETALS_GOLD, true));
+    } else if (type === "storm") {
+      for (i = 0; i < 80; i++) P.push({ k: "rain", x: rand(0, W + 60), y: rand(-H, H), len: rand(10, 18), v: rand(9, 13) });
+    } else if (type === "fireflies") {
+      for (i = 0; i < 18; i++) P.push({ k: "fly", bx: rand(0, W), by: rand(H * 0.3, floor - 10), ph: rand(0, 6.28), sp: rand(0.006, 0.014), ax: rand(14, 34), ay: rand(8, 20), drift: -rand(0.05, 0.2) });
+      for (i = 0; i < 3; i++) weather.birds.push(newBird(true));
+    } else if (type === "embers") {
+      for (i = 0; i < 34; i++) P.push(newEmber(true));
+    } else if (type === "dust") {
+      for (i = 0; i < 30; i++) P.push({ k: "mote", x: rand(0, W), y: rand(0, floor), vx: rand(-0.25, 0.05), vy: rand(-0.12, 0.08), ph: rand(0, 6.28), r: rand(1, 2.2) });
+    }
+    P.forEach(function (p) { if (p.x === undefined) { p.x = p.bx; p.y = p.by; } p.px = p.x; p.py = p.y; });
+  }
+  function stepWeather() {
+    var w = weather, floor = H - GROUND_H;
+    w.t += STEP_MS;
+    for (var i = 0; i < w.parts.length; i++) {
+      var p = w.parts[i];
+      p.px = p.x; p.py = p.y;
+      if (p.k === "star") { p.ph += p.sp; }
+      else if (p.k === "fog") { p.x += p.vx; if (p.x < -p.r) p.x = p.px = W + p.r; }
+      else if (p.k === "petal") {
+        p.ph += 0.03; p.x += p.vx + Math.sin(p.ph) * 0.4; p.y += p.vy; p.rot += p.vr;
+        if (p.y > H + 10 || p.x < -20) { var np = newPetal(w.type === "petals" ? PETALS_RED : PETALS_GOLD, false); np.px = np.x; np.py = np.y; w.parts[i] = np; }
+      } else if (p.k === "rain") {
+        p.x -= 2.6; p.y += p.v;
+        if (p.y > floor) { p.y = p.py = rand(-40, 0); p.x = p.px = rand(0, W + 80); }
+      } else if (p.k === "fly") {
+        p.ph += p.sp; p.bx += p.drift;
+        if (p.bx < -40) p.bx += W + 80;
+        p.x = p.bx + Math.sin(p.ph) * p.ax; p.y = p.by + Math.sin(p.ph * 1.7) * p.ay;
+        if (Math.abs(p.x - p.px) > 50) p.px = p.x;
+      } else if (p.k === "ember") {
+        p.ph += 0.1; p.x += p.vx + Math.sin(p.ph * 0.3) * 0.3; p.y += p.vy;
+        if (p.y < -10) { var ne = newEmber(false); ne.px = ne.x; ne.py = ne.y; w.parts[i] = ne; }
+      } else if (p.k === "mote") {
+        p.ph += 0.02; p.x += p.vx; p.y += p.vy + Math.sin(p.ph) * 0.05;
+        if (p.x < -5) p.x = p.px = W + 5;
+        if (p.y < -5) p.y = p.py = floor;
+        if (p.y > floor + 5) p.y = p.py = 0;
+      }
+    }
+    for (var b = 0; b < w.birds.length; b++) {
+      var bd = w.birds[b];
+      bd.px = bd.x; bd.x += bd.vx; bd.ph += 0.18;
+      if (bd.x < -20) { w.birds[b] = newBird(false); w.birds[b].px = w.birds[b].x; }
+    }
+    if (w.type === "storm") {
+      var live = state !== "reveal" && state !== "finale";
+      if (w.t > w.nextBolt) { w.boltT = 0; w.nextBolt = w.t + rand(3500, 7500); if (live) w.thunderAt = w.t + rand(250, 900); }
+      if (w.boltT >= 0) { w.boltT += STEP_MS; if (w.boltT > 700) w.boltT = -1; }
+      if (w.t >= w.thunderAt) { w.thunderAt = Infinity; if (live) sfxThunder(); }
+    }
+    if (w.type === "embers" && Math.random() < 0.25) w.laser = rand(0.55, 1);
+  }
+  // Lightning: a double flicker, then a fade.
+  function boltAlpha() {
+    var t = weather.boltT;
+    if (t < 0) return 0;
+    if (t < 60) return 0.5;
+    if (t < 130) return 0.08;
+    if (t < 210) return 0.42;
+    return 0.42 * Math.max(0, 1 - (t - 210) / 490);
+  }
+  function drawRays(cx, cy, n, spin, width, alpha, color) {
+    var R = Math.max(W, H) * 1.3;
+    var gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    gr.addColorStop(0, rgba(color, alpha));
+    gr.addColorStop(0.55, rgba(color, alpha * 0.35));
+    gr.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) {
+      var a = spin + (i / n) * Math.PI * 2, wv = width * (0.7 + 0.3 * Math.sin(i * 2.3));
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a - wv) * R, cy + Math.sin(a - wv) * R);
+      ctx.lineTo(cx + Math.cos(a + wv) * R, cy + Math.sin(a + wv) * R);
+      ctx.closePath();
+    }
+    ctx.fill();
+  }
+  function drawWeatherBack(L, alpha) {
+    var w = weather, f = L.fx || {}, i, p, x, y, t = w.t;
+    if (w.lv !== currentLevel) return;
+    ctx.globalCompositeOperation = "lighter";
+    if (f.sun) {
+      var s = bgPoint(L, f.sun.x, f.sun.y);
+      if (s) {
+        if (w.type === "sunrise") {
+          drawRays(s.x, s.y, 14, t * 0.00006, 0.05, 0.1, "#fff1c2");
+          glowAt("#ffe8a8", s.x, s.y, 70 + Math.sin(t / 900) * 6, 0.35);
+        } else {
+          drawRays(s.x, s.y, 6, 2.2 + Math.sin(t / 4000) * 0.08, 0.06, 0.07, "#fff0cc");
+          glowAt("#ffe2b0", s.x, s.y, 44, 0.25);
+        }
+      }
+    }
+    if (f.crack) {
+      var c0 = bgPoint(L, f.crack.x, f.crack.y0), c1 = bgPoint(L, f.crack.x, f.crack.y1);
+      if (c0) {
+        var pulse = 0.55 + 0.45 * Math.pow(Math.sin(t / 520), 2);
+        for (y = c0.y; y <= c1.y; y += 9) glowAt("#ff5a3a", c0.x, y, 16, 0.14 * pulse);
+        ctx.globalAlpha = 0.5 * pulse;
+        ctx.fillStyle = "#ffb07a";
+        ctx.fillRect(c0.x - 0.8, c0.y, 1.6, c1.y - c0.y);
+      }
+    }
+    if (f.laser) {
+      var l0 = bgPoint(L, f.laser.x0, f.laser.y), l1 = bgPoint(L, f.laser.x1, f.laser.y);
+      if (l0) {
+        var fl = w.laser;
+        ctx.globalAlpha = 0.28 * fl;
+        ctx.fillStyle = "#ff503c";
+        ctx.fillRect(l0.x, l0.y - 3, l1.x - l0.x, 6);
+        ctx.globalAlpha = 0.85 * fl;
+        ctx.fillStyle = "#ffd6c8";
+        ctx.fillRect(l0.x, l0.y - 0.7, l1.x - l0.x, 1.4);
+        glowAt("#ff6a4a", l0.x, l0.y, 16, 0.5 * fl);
+        glowAt("#ff6a4a", l1.x, l1.y, 16, 0.5 * fl);
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+    for (i = 0; i < w.parts.length; i++) {
+      p = w.parts[i];
+      x = lerp(p.px, p.x, alpha); y = lerp(p.py, p.y, alpha);
+      if (p.k === "star") {
+        ctx.globalAlpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(p.ph));
+        ctx.fillStyle = "#dfe6ff";
+        ctx.fillRect(x, y, p.r, p.r);
+      } else if (p.k === "fog" && !p.front) {
+        ctx.globalAlpha = p.a;
+        ctx.drawImage(glowDot("#c9d3e6"), x - p.r, y - p.r * 0.45, p.r * 2, p.r * 0.9);
+      } else if (p.k === "fly") {
+        var pul = 0.5 + 0.5 * Math.sin(p.ph * 6);
+        ctx.globalCompositeOperation = "lighter";
+        glowAt("#f5e27a", x, y, 7 + pul * 4, 0.35 + 0.4 * pul);
+        ctx.globalCompositeOperation = "source-over";
+      } else if (p.k === "ember") {
+        ctx.globalCompositeOperation = "lighter";
+        var fk = 0.55 + 0.45 * Math.sin(p.ph * 3);
+        glowAt("#ff7a3d", x + p.r / 2, y + p.r / 2, p.r * 4, 0.35 * fk);
+        ctx.globalAlpha = fk;
+        ctx.fillStyle = p.c;
+        ctx.fillRect(x, y, p.r, p.r);
+        ctx.globalCompositeOperation = "source-over";
+      } else if (p.k === "mote") {
+        ctx.globalCompositeOperation = "lighter";
+        glowAt("#ffe7b0", x, y, p.r * 3, 0.3 + 0.2 * Math.sin(p.ph * 3));
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+    if (w.birds.length) {
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = "rgba(45,28,40,1)";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      for (i = 0; i < w.birds.length; i++) {
+        var bd = w.birds[i], bx = lerp(bd.px, bd.x, alpha), wing = Math.sin(bd.ph) * bd.s * 0.6;
+        ctx.moveTo(bx - bd.s, bd.y - wing);
+        ctx.lineTo(bx, bd.y);
+        ctx.lineTo(bx + bd.s, bd.y - wing);
+      }
+      ctx.stroke();
+    }
+    if (w.type === "fireflies") {
+      var hz = ctx.createLinearGradient(0, H * 0.45, 0, H);
+      hz.addColorStop(0, "rgba(255,160,90,0)");
+      hz.addColorStop(1, "rgba(255,160,90,0.16)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = hz;
+      ctx.fillRect(0, H * 0.45, W, H * 0.55);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawWeatherFront(L, alpha) {
+    var w = weather, i, p, x, y;
+    if (w.lv !== currentLevel) return;
+    if (w.type === "storm") {
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = "#b9c6ff";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (i = 0; i < w.parts.length; i++) {
+        p = w.parts[i];
+        x = lerp(p.px, p.x, alpha); y = lerp(p.py, p.y, alpha);
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + p.len * 0.25, y - p.len);
+      }
+      ctx.stroke();
+    }
+    for (i = 0; i < w.parts.length; i++) {
+      p = w.parts[i];
+      if (p.k === "petal") {
+        x = lerp(p.px, p.x, alpha); y = lerp(p.py, p.y, alpha);
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = p.c;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(p.rot);
+        ctx.scale(1, 0.35 + 0.65 * Math.abs(Math.sin(p.ph * 2)));   // tumbling
+        ctx.fillRect(-p.s, -p.s * 0.55, p.s * 2, p.s * 1.1);
+        ctx.restore();
+      } else if (p.k === "fog" && p.front) {
+        x = lerp(p.px, p.x, alpha);
+        ctx.globalAlpha = p.a * 0.8;
+        ctx.drawImage(glowDot("#c9d3e6"), x - p.r, H - GROUND_H - p.r * 0.35, p.r * 2, p.r * 0.7);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- Foreground: dark rocks and grass along the bottom edge, scrolling faster than the pillars (depth)
+  var FG_TW = 520, FG_H = 48, FG_SPEED = 1.35;
+  function fgStripFor(L, lv) {
+    var key = W + "x" + H + "@" + SCALE;
+    if (L._fg && L._fg.key === key) return L._fg;
+    var c = document.createElement("canvas");
+    c.width = Math.ceil(FG_TW * SCALE);
+    c.height = Math.ceil(FG_H * SCALE);
+    var g = c.getContext("2d");
+    g.scale(SCALE, SCALE);
+    g.fillStyle = mix(L.skyDeep, "#000000", 0.6);
+    var seed = lv * 9973 + 17;
+    function sr() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    function wrapped(fn) { fn(0); fn(-FG_TW); fn(FG_TW); }   // shapes wrap around so the strip tiles
+    var i;
+    // rocks: irregular polygons, a few big, most small
+    for (i = 0; i < 7; i++) {
+      var rx = sr() * FG_TW, rw = i < 2 ? 22 + sr() * 16 : 8 + sr() * 12, rh = rw * (0.45 + sr() * 0.35), pts = [];
+      var n = 5 + Math.floor(sr() * 3);
+      for (var q = 0; q <= n; q++) {
+        var tq = q / n;
+        pts.push([rx - rw + tq * rw * 2, FG_H - Math.sin(tq * Math.PI) * rh * (0.75 + sr() * 0.4)]);
+      }
+      wrapped(function (o) {
+        g.beginPath();
+        g.moveTo(pts[0][0] + o, FG_H);
+        pts.forEach(function (pt) { g.lineTo(pt[0] + o, pt[1]); });
+        g.lineTo(pts[pts.length - 1][0] + o, FG_H);
+        g.closePath();
+        g.fill();
       });
     }
-    return arr;
+    // grass tufts, some tall
+    for (i = 0; i < 34; i++) {
+      var gx = sr() * FG_TW, nb = 3 + Math.floor(sr() * 6), gh = 6 + sr() * (i % 6 === 0 ? 30 : 14), blades = [];
+      for (var bI = 0; bI < nb; bI++) blades.push({ dx: (bI - nb / 2) * 2, lean: (sr() - 0.5) * 8, h: gh * (0.55 + sr() * 0.45) });
+      wrapped(function (o) {
+        blades.forEach(function (bl) {
+          g.beginPath();
+          g.moveTo(gx + o + bl.dx - 1.1, FG_H);
+          g.quadraticCurveTo(gx + o + bl.dx + bl.lean * 0.3, FG_H - bl.h * 0.6, gx + o + bl.dx + bl.lean, FG_H - bl.h);
+          g.lineTo(gx + o + bl.dx + 1.1, FG_H);
+          g.fill();
+        });
+      });
+    }
+    g.fillRect(0, FG_H - 4, FG_TW, 4);
+    L._fg = { key: key, canvas: c };
+    return L._fg;
   }
+
+  // ---- Vignette: stronger in the guarded early hours, lifting as the story opens up
+  var vignetteCache = null;
+  function vignette() {
+    var key = W + "x" + H + "@" + SCALE;
+    if (vignetteCache && vignetteCache.key === key) return vignetteCache.canvas;
+    var c = document.createElement("canvas");
+    c.width = Math.ceil(W * SCALE); c.height = Math.ceil(H * SCALE);
+    var g = c.getContext("2d");
+    g.scale(SCALE, SCALE);
+    var gr = g.createRadialGradient(W / 2, H * 0.48, Math.min(W, H) * 0.32, W / 2, H * 0.48, Math.max(W, H) * 0.78);
+    gr.addColorStop(0, "rgba(0,0,0,0)");
+    gr.addColorStop(1, "rgba(0,0,0,1)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, W, H);
+    vignetteCache = { key: key, canvas: c };
+    return c;
+  }
+
   var MAX_FX = 180;
   function addFx(p) {
     if (fx.length >= MAX_FX) fx.shift();
@@ -724,9 +1110,41 @@
       tracksEl.appendChild(row);
     }
   }
+  // HUD clock: the hour hand points at the level's hour, the minute hand sweeps once per level.
+  (function buildClockTicks() {
+    var g = document.getElementById("clockTicks");
+    for (var i = 0; i < 12; i++) {
+      var ln = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      var major = i % 3 === 0;
+      ln.setAttribute("x1", "20"); ln.setAttribute("y1", "4.6");
+      ln.setAttribute("x2", "20"); ln.setAttribute("y2", major ? "8.4" : "6.8");
+      ln.setAttribute("transform", "rotate(" + i * 30 + " 20 20)");
+      if (major) ln.setAttribute("class", "major");
+      g.appendChild(ln);
+    }
+  })();
+  var CLOCK_C = 2 * Math.PI * 8.5;
+  function setClock(lv, frac, instant) {
+    if (instant) { clockMin.style.transition = "none"; clockFill.style.transition = "none"; }
+    clockMin.style.transform = "rotate(" + (frac * 360) + "deg)";
+    clockHour.style.transform = "rotate(" + (((lv + 1) % 12) * 30) + "deg)";
+    clockFill.style.strokeDasharray = (frac * CLOCK_C).toFixed(2) + " " + CLOCK_C.toFixed(2);
+    if (instant) {
+      void clockMin.getBoundingClientRect();
+      clockMin.style.transition = ""; clockFill.style.transition = "";
+    }
+  }
+  function strikeClock() {
+    clockEl.classList.remove("strike");
+    void clockEl.getBoundingClientRect();
+    clockEl.classList.add("strike");
+  }
+  function hourLabel(lv) { return (lv + 1) + " O'Clock"; }
   function updateHud(bump) {
-    levelLabel.textContent = "Level " + (currentLevel + 1) + " of " + LEVELS.length;
-    progressLabel.textContent = pipesPassed + " / " + LEVELS[currentLevel].need;
+    var need = LEVELS[currentLevel].need;
+    levelLabel.innerHTML = '<span class="hud-hour">' + hourLabel(currentLevel) + "</span><small>" + (currentLevel + 1) + "/" + LEVELS.length + "</small>";
+    progressLabel.textContent = pipesPassed + " / " + need;
+    setClock(currentLevel, Math.min(1, pipesPassed / need), !bump);
     if (bump) {
       progressLabel.classList.remove("bump");
       void progressLabel.offsetWidth;
@@ -752,8 +1170,9 @@
     player = newPlayer();
     pipes = [];
     fx.length = 0;
-    hitStop = 0; flash = 0; trauma = 0;
-    ambient = makeAmbient();
+    hitStop = 0; flash = 0; trauma = 0; heartBoost = 0;
+    stageEl.style.setProperty("--level-glow", LEVELS[lv].glow);
+    initWeather(lv);
     var startX = W + 100;
     for (var i = 0; i < 4; i++) pipes.push(makePipe(startX + i * PIPE_SPACING, lv));
     updateHud();
@@ -777,7 +1196,10 @@
     finaleExtra.style.display = "none";
     overlayTitle.style.display = "block";
     overlayTitle.className = lv === 0 ? "brand" : "";
-    overlayTitle.textContent = lv === 0 ? "Loverboy O'Clock" : "Level " + (lv + 1) + ": " + LEVELS[lv].track;
+    overlayTitle.textContent = lv === 0 ? "Loverboy O'Clock" : LEVELS[lv].track;
+    overlayKicker.textContent = "Level " + (lv + 1) + " \u00b7 " + hourLabel(lv);
+    overlayKicker.style.display = lv === 0 ? "none" : "";
+    stageEl.style.setProperty("--level-glow", LEVELS[lv].glow);
     if (lv === 0) {
       overlayText.style.display = "none";
       introDetails.style.display = "flex";
@@ -788,7 +1210,7 @@
     }
     overlay.classList.remove("hide");
     pipesPassed = 0;
-    ambient = makeAmbient();
+    initWeather(lv);
     muffle(true);
     updateHud();
   }
@@ -801,6 +1223,7 @@
     overlay.classList.add("hide");
     hideFailCard();
     readyTitle.textContent = LEVELS[lv].track;
+    readyKicker.textContent = hourLabel(lv);
     readyHint.classList.add("show");
     playMusicFor(lv);
   }
@@ -827,6 +1250,7 @@
   // kind: "ground", "top" (hit the hanging pillar) or "bottom" (hit the standing pillar)
   function crash(kind, hx, hy) {
     var L = LEVELS[currentLevel];
+    flashColor = "#fff";
     state = "dying";
     stateT = 0;
     hitStop = 5;                                   // brief freeze-frame on impact
@@ -871,6 +1295,7 @@
     introDetails.style.display = "none";
     overlayTitle.style.display = "none";
     overlayText.style.display = "none";
+    overlayKicker.style.display = "none";
     finaleExtra.style.display = "flex";
     if (savedEmail) {
       emailForm.style.display = "none";
@@ -896,6 +1321,20 @@
       var ang = (i / 8) * Math.PI * 2;
       addFx({ k: "heart", layer: 1, x: player.x + Math.cos(ang) * 26, y: player.y + Math.sin(ang) * 26, vx: Math.cos(ang) * 1.6, vy: Math.sin(ang) * 1.6 - 1.2,
         g: 0.03, drag: 0.97, life: Math.round(rand(40, 60)), size: rand(1.1, 1.7), color: i % 2 ? "#ff8fb1" : L.glow });
+    }
+    heartBoost = 1;
+    strikeClock();
+    if (currentLevel === LEVELS.length - 1) {
+      // 7 O'Clock: the heart finally bursts open
+      flash = reduceMotion ? 0.25 : 0.55;
+      flashColor = "#ffe7b0";
+      ringFx(player.x, player.y, "#ff4d7a", 20, 120);
+      ringFx(player.x, player.y, "#ffd27a", 10, 90);
+      for (var j = 0; j < 22; j++) {
+        var a2 = rand(0, Math.PI * 2), v2 = rand(2, 5);
+        addFx({ k: "heart", layer: 1, x: player.x, y: player.y, vx: Math.cos(a2) * v2, vy: Math.sin(a2) * v2 - 1, g: 0.05, drag: 0.96,
+          life: Math.round(rand(50, 80)), size: rand(1.4, 2.4), color: pick(["#ff4d7a", "#ff8fb1", "#ffd27a"]) });
+      }
     }
     sfxClear();
     haptic("pass");
@@ -1057,20 +1496,17 @@
 
     flash *= 0.84;
     trauma = Math.max(0, trauma - 0.03);
+    heartBoost *= 0.96;
+    pGroundX = groundX;
     if (hitStop > 0) { hitStop--; return; }
 
     stateT += STEP_MS;
     var L = LEVELS[currentLevel];
 
-    if (ambient) {
-      for (var a = 0; a < ambient.length; a++) {
-        var pt = ambient[a];
-        pt.py = pt.y;
-        pt.y -= pt.speed;
-        pt.x += pt.drift;
-        if (pt.y < -5) { pt.y = pt.py = H - GROUND_H + 5; pt.x = Math.random() * W; }
-      }
-    }
+    if (weather.lv >= 0) stepWeather();
+    // ground + foreground scroll with the world (they keep moving while hovering, stop on a crash)
+    var worldV = state === "playing" || state === "ready" ? L.speed : state === "clear" ? L.speed * Math.max(0.12, 1 - stateT / 700) : 0;
+    groundX += worldV;
     stepFx();
 
     var frac = state === "playing" || state === "dying" || state === "gameover" || state === "clear" ? pipesPassed / L.need : 0;
@@ -1142,6 +1578,10 @@
       var p = pipes[i];
       p.x -= L.speed;
       stepPipeMove(p, L, 1);
+      if (p.variant === "torch" && p.x > -40 && p.x < W && Math.random() < 0.18) {
+        addFx({ k: "spark", layer: 0, x: p.x + PIPE_WIDTH / 2 + rand(-4, 4), y: p.gapY + p.gapH / 2 + PILLAR_TYPES.torch.flameY * PILLAR_SCALE,
+          vx: -L.speed * 0.85 + rand(-0.3, 0.3), vy: -rand(0.6, 1.5), g: -0.01, drag: 0.99, life: Math.round(rand(18, 34)), color: "#ffb45a" });
+      }
 
       var withinX = player.x + RADIUS > p.x && player.x - RADIUS < p.x + PIPE_WIDTH;
       if (withinX) {
@@ -1292,45 +1732,35 @@
     } else {
       drawSceneForLevel(currentLevel, L, H - GROUND_H - 6);
     }
-    if (ambient) {
-      ctx.fillStyle = L.glow;
-      for (var i = 0; i < ambient.length; i++) {
-        var pt = ambient[i];
-        ctx.globalAlpha = pt.alpha;
-        ctx.beginPath();
-        ctx.arc(pt.x, lerp(pt.py, pt.y, alpha), pt.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
   }
 
-  function drawPillar(img, cx, y, h, flip) {
-    var s = PILLAR.scale, dw = img.width * s;
-    var capH = PILLAR.capH * s, baseH = PILLAR.baseH * s;
+  function drawPillar(img, T, cx, y, h, flip) {
+    var s = PILLAR_SCALE, dw = img.width * T.sx;
+    var capH = T.capH * s, baseH = T.baseH * s;
     if (capH + baseH > h) { var k = h / (capH + baseH); capH *= k; baseH *= k; }
     var shaftH = h - capH - baseH;
     ctx.save();
     if (flip) { ctx.translate(0, 2 * y + h); ctx.scale(1, -1); } // hangs from the ceiling, cap faces the gap
     ctx.translate(cx - dw / 2, 0);
-    ctx.drawImage(img, 0, 0, img.width, PILLAR.capH, 0, y, dw, capH);
+    ctx.drawImage(img, 0, 0, img.width, T.capH, 0, y, dw, capH);
     if (shaftH > 0) {
       ctx.save();
       ctx.beginPath(); ctx.rect(0, y + capH, dw, shaftH); ctx.clip();
-      var tileDH = PILLAR.tileH * s;
+      var tileDH = T.tileH * s;
       for (var yy = y + capH; yy < y + capH + shaftH; yy += tileDH) {
-        ctx.drawImage(img, 0, PILLAR.tileY, img.width, PILLAR.tileH, 0, yy, dw, tileDH);
+        ctx.drawImage(img, 0, T.tileY, img.width, T.tileH, 0, yy, dw, tileDH);
       }
       ctx.restore();
     }
-    ctx.drawImage(img, 0, img.height - PILLAR.baseH, img.width, PILLAR.baseH, 0, y + h - baseH, dw, baseH);
+    ctx.drawImage(img, 0, img.height - T.baseH, img.width, T.baseH, 0, y + h - baseH, dw, baseH);
     ctx.restore();
   }
   // Canvas-drawn fallback column, used only until the pillar art has loaded.
-  function drawColumn(x, y, h, L, capAtBottom) {
+  function drawColumn(x, y, h, L, capAtBottom, variant) {
     if (h <= 0) return;
-    var art = pillarFor(currentLevel, L);
-    if (art) { drawPillar(art, x + PIPE_WIDTH / 2, y, h, capAtBottom); return; }
+    var art = pillarFor(currentLevel, L, variant), T = PILLAR_TYPES[variant];
+    if (!art) { art = pillarFor(currentLevel, L, "plain"); T = PILLAR_TYPES.plain; }
+    if (art) { drawPillar(art, T, x + PIPE_WIDTH / 2, y, h, capAtBottom); return; }
     ctx.fillStyle = L.pipe;
     ctx.fillRect(x, y, PIPE_WIDTH, h);
     var capH = Math.min(14, h), capY = capAtBottom ? y + h - capH : y;
@@ -1345,6 +1775,35 @@
     }
     if (player.flapT < 100) return "fly-1";
     return player.vy < -1.5 ? "jump-2" : "jump-3";
+  }
+
+  // The heart he carries: locked and dim at 1 O'Clock, brighter every hour, bursting open at 7.
+  function heartbeat(ms) {
+    var t = ms % 900;
+    function bump(c) { var d = (t - c) / 70; return Math.exp(-d * d); }
+    return Math.max(bump(70), 0.65 * bump(290));   // lub-dub
+  }
+  function drawChestHeart(now) {
+    var k = currentLevel / (LEVELS.length - 1);
+    var beat = heartbeat(now) * (0.35 + 0.65 * k);
+    var size = 1.3 * (1 + 0.16 * beat + 0.5 * heartBoost);
+    var gr = 5 + 15 * k + 14 * heartBoost;
+    ctx.globalCompositeOperation = "lighter";
+    glowAt("#ff4d7a", 0, 0, gr, Math.min(1, (0.12 + 0.5 * k) * (0.7 + 0.3 * beat) + 0.5 * heartBoost));
+    ctx.globalCompositeOperation = "source-over";
+    drawHeart(0, 0, size, mix("#5b2a38", "#ff3d6e", Math.min(1, k + heartBoost * 0.5)), 1);
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "#ffd1dc";
+    ctx.fillRect(-2.2 * size, -2 * size, size, size);   // highlight
+    if (currentLevel === 0) {                            // still locked
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#e0b04a";
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.arc(0, -0.4, 1.3, Math.PI, 0); ctx.stroke();
+      ctx.fillStyle = "#e0b04a";
+      ctx.fillRect(-1.8, -0.4, 3.6, 2.8);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawPlayer(L, alpha) {
@@ -1367,6 +1826,10 @@
         ctx.rotate(rot);
         ctx.scale(sx, sy);
         ctx.drawImage(sp.canvas, -dw / 2 - GLOW_PAD, -dh / 2 - GLOW_PAD, dw + GLOW_PAD * 2, dh + GLOW_PAD * 2);
+        if (state !== "dying" && state !== "gameover") {
+          ctx.translate(1, 6);
+          drawChestHeart(performance.now());
+        }
       }
     } else {
       ctx.beginPath();
@@ -1388,9 +1851,10 @@
     }
 
     drawBackdrop(L, alpha);
+    drawWeatherBack(L, alpha);
 
     if (pipes.length && state !== "intro" && state !== "reveal" && state !== "finale") {
-      ctx.imageSmoothingEnabled = PILLAR.scale * k < 2;
+      ctx.imageSmoothingEnabled = PILLAR_SCALE * k < 2;
       for (var i = 0; i < pipes.length; i++) {
         var p = pipes[i];
         var px = Math.round(lerp(p.px, p.x, alpha) * k) / k;
@@ -1398,22 +1862,59 @@
         var gy = lerp(p.pgy, p.gapY, alpha);
         var gapTop = gy - p.gapH / 2;
         var gapBottom = gy + p.gapH / 2;
-        drawColumn(px, 0, gapTop, L, true);
-        drawColumn(px, gapBottom, H - GROUND_H - gapBottom, L, false);
+        drawColumn(px, 0, gapTop, L, true, "plain");
+        drawColumn(px, gapBottom, H - GROUND_H - gapBottom, L, false, p.variant);
+        if (p.variant === "torch" && PILLAR_TYPES.torch.img.naturalWidth) {
+          var fy = gapBottom + PILLAR_TYPES.torch.flameY * PILLAR_SCALE, fl = 0.8 + 0.2 * Math.sin(weather.t / 70 + p.seed) * Math.sin(weather.t / 113 + p.seed);
+          ctx.globalCompositeOperation = "lighter";
+          glowAt("#ff9a3c", px + PIPE_WIDTH / 2, fy, 30 * fl, 0.5 * fl);
+          glowAt("#ffe0a0", px + PIPE_WIDTH / 2, fy + 2, 11 * fl, 0.55);
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
-    ctx.fillStyle = L.pipe;
+    // ground: tinted stone strip scrolling with the pillars
+    ctx.fillStyle = mix(L.pipe, "#000000", 0.35);
     ctx.fillRect(-20, H - GROUND_H, W + 40, GROUND_H + 20);
+    var gs = groundStripFor(L);
+    if (gs) {
+      var gw = gs.width * GROUND_SCALE, gh = gs.height * GROUND_SCALE;
+      var gx0 = -(((lerp(pGroundX, groundX, alpha)) % gw) + gw) % gw;
+      gx0 = Math.round(gx0 * k) / k;
+      ctx.imageSmoothingEnabled = GROUND_SCALE * k < 2;
+      for (var gxx = gx0; gxx < W + 2; gxx += gw) ctx.drawImage(gs, gxx, H - GROUND_H - 5, gw + 0.5, gh);
+    }
+    // foreground silhouettes: nearer to the camera, so they slide past faster
+    var fg = fgStripFor(L, currentLevel);
+    var fx0 = -(((lerp(pGroundX, groundX, alpha) * FG_SPEED) % FG_TW) + FG_TW) % FG_TW;
+    fx0 = Math.round(fx0 * k) / k;
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 0.96;
+    for (var fxx = fx0; fxx < W + 2; fxx += FG_TW) ctx.drawImage(fg.canvas, fxx, H - FG_H, FG_TW + 0.5, FG_H);
+    ctx.globalAlpha = 1;
 
     drawFx(0, alpha);
     if (player) drawPlayer(L, alpha);
     drawFx(1, alpha);
+    drawWeatherFront(L, alpha);
     ctx.restore();
 
+    ctx.globalAlpha = lerp(0.55, 0.22, currentLevel / (LEVELS.length - 1));
+    ctx.drawImage(vignette(), 0, 0, W, H);
+    ctx.globalAlpha = 1;
+
+    var bolt = weather.type === "storm" && weather.lv === currentLevel ? boltAlpha() : 0;
+    if (bolt > 0.01) {
+      ctx.globalAlpha = bolt;
+      ctx.fillStyle = "#dfe6ff";
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
     if (flash > 0.01) {
       ctx.globalAlpha = flash;
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = flashColor;
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
     }
@@ -1454,7 +1955,7 @@
       PLAYER_X = Math.round(W * 0.235);
       MOVE_FREEZE_X = PLAYER_X + 60;
       MOVE_ZONE_MIN = PLAYER_X + 150;
-      if (ambient) ambient = makeAmbient();
+      if (weather.lv >= 0) initWeather(weather.lv);
     }
   }
   var fitTimer = null;
@@ -1480,7 +1981,7 @@
     if (state === "intro") {
       showIntro(currentLevel);
     } else {
-      ambient = makeAmbient();
+      initWeather(currentLevel);
       showFinale();
     }
     draw(1);
@@ -1544,7 +2045,8 @@
   (function preload() {
     var fontLoads = ['700 20px "Pixelify Sans"', 'italic 20px "Instrument Serif"', "20px Shrikhand", '20px "DM Serif Display"']
       .map(function (f) { return document.fonts && document.fonts.load ? document.fonts.load(f).catch(function () {}) : Promise.resolve(); });
-    var jobs = fontLoads.concat([whenReady(pillarImg)], FRAME_NAMES.map(function (n) { return whenReady(FRAMES[n]); }), [loadBg(currentLevel)]);
+    var art = Object.keys(PILLAR_TYPES).map(function (k) { return whenReady(PILLAR_TYPES[k].img); }).concat([whenReady(groundImg)]);
+    var jobs = fontLoads.concat(art, FRAME_NAMES.map(function (n) { return whenReady(FRAMES[n]); }), [loadBg(currentLevel)]);
     var done = 0;
     jobs.forEach(function (p) {
       p.then(function () { done++; loaderFill.style.width = Math.round((done / jobs.length) * 100) + "%"; });
