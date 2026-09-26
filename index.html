@@ -12,6 +12,7 @@
 <link rel="preload" href="assets/fonts/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/shrikhand.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/dm-serif-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/sprites/frames/fly-1.png" as="image">
 <link rel="preload" href="assets/sprites/frames/jump-2.png" as="image">
 <link rel="preload" href="assets/sprites/frames/jump-3.png" as="image">
 <link rel="preload" href="assets/obstacles/pillar-1.png" as="image">
@@ -30,6 +31,16 @@
     <div class="hud">
       <span id="levelLabel">Level 1 of 7</span>
       <span id="progressLabel">0 / 5</span>
+    </div>
+    <div class="ready-hint" id="readyHint" aria-live="polite">
+      <p class="ready-title" id="readyTitle">Get ready</p>
+      <span class="tap-ring" aria-hidden="true"></span>
+      <p class="ready-sub">Tap to fly</p>
+    </div>
+    <div class="failcard" id="failCard" aria-live="polite">
+      <p class="fail-title" id="failTitle">So close!</p>
+      <p class="fail-score"><span id="failScore">0 / 5</span><span class="fail-best" id="failBest">Best 0</span></p>
+      <p class="fail-hint">Tap to retry</p>
     </div>
     <div class="overlay" id="overlay">
       <h2 id="overlayTitle">Loverboy O'Clock</h2>
