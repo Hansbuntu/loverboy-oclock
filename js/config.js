@@ -25,6 +25,9 @@ window.LOVERBOY_CONFIG = {
     field: "email"
   },
 
+  // Public address of the game, used by the share button and the share image.
+  site: { url: "https://hansbuntu.github.io/loverboy-oclock/" },
+
   // Reveal preview length (ms). Capped to the real clip duration when known.
   previewMs: 10000
 };

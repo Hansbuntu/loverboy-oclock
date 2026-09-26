@@ -42,6 +42,14 @@
   var clockMin = document.getElementById("clockMin");
   var clockHour = document.getElementById("clockHour");
   var clockFill = document.getElementById("clockFill");
+  var reelL = document.getElementById("reelL");
+  var reelR = document.getElementById("reelR");
+  var wipeEl = document.getElementById("wipe");
+  var finaleTape = document.getElementById("finaleTape");
+  var heartRain = document.getElementById("heartRain");
+  var shareBtn = document.getElementById("shareBtn");
+  var shareNote = document.getElementById("shareNote");
+  var tapeHint = document.getElementById("tapeHint");
 
   // Physics runs at a fixed 60 steps/second (same numbers the levels were tuned with), so jump
   // height and speed are identical on 60, 90 and 120 Hz screens. Rendering interpolates between steps.
@@ -485,7 +493,8 @@
   }
 
   // Cut-out frames from the character sheet (assets/sprites/frames/). fly-1 is jump-1 without its ground shadow.
-  var FRAME_NAMES = ["fly-1", "jump-2", "jump-3", "hurt-1", "death-1", "death-2", "death-3", "death-4"];
+  var FRAME_NAMES = ["fly-1", "jump-2", "jump-3", "hurt-1", "death-1", "death-2", "death-3", "death-4",
+    "idle-1", "idle-2", "idle-3", "idle-4", "idle-blink"];
   var FRAMES = {};
   FRAME_NAMES.forEach(function (n) {
     var img = new Image();
@@ -1095,21 +1104,103 @@
   // =====================================================================================
   // HUD, tracklist
   // =====================================================================================
+  // ---- The tape (tracklist) doubles as a jukebox: tap an unlocked track to replay its preview.
+  var jukeAudio = new Audio();
+  jukeAudio.preload = "none";
+  var juke = { idx: -1, timer: null, prevVol: 0 };
+  var LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><path fill="currentColor" d="M3 6V4a3 3 0 0 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm1.5 0h3V4a1.5 1.5 0 0 0-3 0v2z"/></svg>';
   function renderTracks() {
     tracksEl.innerHTML = "";
     for (var i = 0; i < LEVELS.length; i++) {
-      var unlocked = i < completedLevels;
-      var row = document.createElement("div");
+      var L = LEVELS[i], unlocked = i < completedLevels;
+      var row = document.createElement(unlocked ? "button" : "div");
       row.className = "track-row " + (unlocked ? "unlocked" : "locked");
-      var name = document.createElement("span");
-      name.textContent = (i + 1) + ". " + LEVELS[i].track;
-      var status = document.createElement("span");
-      status.textContent = unlocked ? "unlocked" : "locked";
-      row.appendChild(name);
-      row.appendChild(status);
+      row.setAttribute("data-idx", i);
+      if (unlocked) {
+        row.type = "button";
+        row.setAttribute("aria-label", "Play preview: " + L.track);
+        row.addEventListener("click", (function (idx) { return function (e) { e.stopPropagation(); toggleJuke(idx); }; })(i));
+        row.innerHTML = '<span class="track-progress"></span><img class="track-tile" alt="" src="' + L.tile + '">' +
+          '<span class="track-name"></span><span class="track-action"><span class="eq"><i></i><i></i><i></i></span><span class="play-ico"></span></span>';
+      } else {
+        row.innerHTML = '<span class="track-lock">' + LOCK_SVG + '</span><span class="track-name"></span><span class="track-action">locked</span>';
+      }
+      row.querySelector(".track-name").textContent = (i + 1) + ". " + L.track;
       tracksEl.appendChild(row);
     }
+    if (tapeHint) tapeHint.style.display = completedLevels > 0 ? "" : "none";
+    markJuke();
   }
+  function markJuke() {
+    var rows = document.querySelectorAll("[data-idx]");
+    for (var i = 0; i < rows.length; i++) {
+      var on = +rows[i].getAttribute("data-idx") === juke.idx;
+      rows[i].classList.toggle("playing", on);
+      if (!on) rows[i].style.removeProperty("--p");
+    }
+  }
+  function toggleJuke(i) {
+    if (juke.idx === i) { stopJuke(); return; }
+    if (state !== "intro" && state !== "ready" && state !== "gameover" && state !== "finale") return;   // not mid-flight
+    ensureAudio();
+    stopJuke(true);
+    juke.idx = i;
+    juke.prevVol = musicTarget;
+    setMusicVolume(0, 0.3);            // duck the game's own music underneath
+    jukeAudio.src = trackAudioSrc(i);
+    jukeAudio.currentTime = 0;
+    jukeAudio.onerror = function () { jukeUnavailable(i); };
+    var pr = jukeAudio.play();
+    if (pr && pr.catch) pr.catch(function () { if (juke.idx === i && jukeAudio.error) jukeUnavailable(i); });
+    clearTimeout(juke.timer);
+    juke.timer = setTimeout(function () { if (juke.idx === i) stopJuke(); }, PREVIEW_MS);
+    markJuke();
+  }
+  function stopJuke(quiet) {
+    if (juke.idx < 0) return;
+    clearTimeout(juke.timer);
+    try { jukeAudio.pause(); } catch (e) {}
+    juke.idx = -1;
+    markJuke();
+    if (!quiet && musicWanted) setMusicVolume(juke.prevVol || MUSIC_VOL, 0.5);
+  }
+  function jukeUnavailable(i) {
+    stopJuke();
+    var rows = document.querySelectorAll('[data-idx="' + i + '"]');
+    for (var r = 0; r < rows.length; r++) {
+      rows[r].classList.add("unavailable");
+      (function (el) { setTimeout(function () { el.classList.remove("unavailable"); }, 1800); })(rows[r]);
+    }
+  }
+  function tickJuke() {
+    if (juke.idx < 0) return;
+    var d = jukeAudio.duration;
+    var len = Math.min(isFinite(d) && d > 0 ? d : PREVIEW_MS / 1000, PREVIEW_MS / 1000);
+    var p = Math.min(1, (jukeAudio.currentTime || 0) / len);
+    var rows = document.querySelectorAll('[data-idx="' + juke.idx + '"]');
+    for (var i = 0; i < rows.length; i++) rows[i].style.setProperty("--p", p.toFixed(3));
+  }
+
+  // ---- Pixel wipe between screens
+  var wiping = false;
+  (function buildWipe() {
+    for (var y = 0; y < 8; y++) for (var x = 0; x < 12; x++) {
+      var c = document.createElement("i");
+      c.style.setProperty("--d", x + y);
+      wipeEl.appendChild(c);
+    }
+  })();
+  function wipe(mid) {
+    if (reduceMotion) { mid(); return; }
+    wiping = true;
+    wipeEl.classList.add("on");
+    setTimeout(function () {
+      mid();
+      requestAnimationFrame(function () { wipeEl.classList.remove("on"); });
+      setTimeout(function () { wiping = false; }, 480);
+    }, 520);
+  }
+
   // HUD clock: the hour hand points at the level's hour, the minute hand sweeps once per level.
   (function buildClockTicks() {
     var g = document.getElementById("clockTicks");
@@ -1139,7 +1230,7 @@
     void clockEl.getBoundingClientRect();
     clockEl.classList.add("strike");
   }
-  function hourLabel(lv) { return (lv + 1) + " O'Clock"; }
+  function hourLabel(lv) { return (lv + 1) + " O'Clock"; }   // en space: keeps "1 O" from reading as "10"
   function updateHud(bump) {
     var need = LEVELS[currentLevel].need;
     levelLabel.innerHTML = '<span class="hud-hour">' + hourLabel(currentLevel) + "</span><small>" + (currentLevel + 1) + "/" + LEVELS.length + "</small>";
@@ -1160,6 +1251,18 @@
     return { x: PLAYER_X, ppx: PLAYER_X, y: y, py: y, vy: 0, rot: 0, prot: 0, s: 0, sv: 0,
       flapT: 999, spin: 0, grounded: false, groundT: 0 };
   }
+  // Between levels he stands on a pillar (idling, blinking); the first tap launches him off it.
+  var LAUNCH_H = 110;
+  var launch = null;           // { x, px } — the pillar he stood on, scrolling away once he takes off
+  function launchTop() { return H - GROUND_H - LAUNCH_H; }
+  function standingPlayer() {
+    var p = newPlayer();
+    p.stand = true;
+    p.y = p.py = launchTop();  // standing: y is the line his feet rest on
+    return p;
+  }
+  function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+
   function setupLevel(lv) {
     fitCanvas();
     currentLevel = lv;
@@ -1188,7 +1291,9 @@
     currentLevel = lv;
     state = "intro";
     stateT = 0;
-    player = null;
+    player = standingPlayer();
+    launch = { x: PLAYER_X, px: PLAYER_X };
+    overlay.classList.add("intro");
     pipes = [];
     fx.length = 0;
     hideFailCard();
@@ -1196,7 +1301,17 @@
     finaleExtra.style.display = "none";
     overlayTitle.style.display = "block";
     overlayTitle.className = lv === 0 ? "brand" : "";
-    overlayTitle.textContent = lv === 0 ? "Loverboy O'Clock" : LEVELS[lv].track;
+    if (lv === 0) {
+      overlayTitle.innerHTML = "";
+      "Loverboy O'Clock".split("").forEach(function (ch, i) {
+        var s = document.createElement("span");
+        s.textContent = ch === " " ? "\u00a0" : ch;
+        s.style.setProperty("--i", i);
+        overlayTitle.appendChild(s);
+      });
+    } else {
+      overlayTitle.textContent = LEVELS[lv].track;
+    }
     overlayKicker.textContent = "Level " + (lv + 1) + " \u00b7 " + hourLabel(lv);
     overlayKicker.style.display = lv === 0 ? "none" : "";
     stageEl.style.setProperty("--level-glow", LEVELS[lv].glow);
@@ -1205,7 +1320,7 @@
       introDetails.style.display = "flex";
     } else {
       overlayText.style.display = "block";
-      overlayText.textContent = "Tap to start the next level.";
+      overlayText.textContent = "Tap to take off";
       introDetails.style.display = "none";
     }
     overlay.classList.remove("hide");
@@ -1217,7 +1332,22 @@
 
   // Hover in place until the first tap; gravity only starts when the player chooses.
   function enterReady(lv) {
+    var fromStand = player && player.stand, standY = fromStand ? player.y : 0;
+    stopJuke(true);
     setupLevel(lv);
+    if (fromStand) {
+      // jump off the pillar up into the hover
+      var y0 = standY - 40;
+      player.entry = { t: 0, y0: y0 };
+      player.y = player.py = y0;
+      player.flapT = 0;
+      player.s = 1;
+      flapPuff(LEVELS[lv]);
+      sfxFlap();
+      launch = { x: PLAYER_X, px: PLAYER_X };
+    } else {
+      launch = null;
+    }
     state = "ready";
     stateT = 0;
     overlay.classList.add("hide");
@@ -1285,10 +1415,45 @@
     stageEl.classList.add("failed");
   }
 
+  function buildFinaleTape() {
+    finaleTape.innerHTML = "";
+    LEVELS.forEach(function (L, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "tape-cell";
+      b.setAttribute("data-idx", i);
+      b.setAttribute("aria-label", "Play preview: " + L.track);
+      b.style.setProperty("--i", i);
+      b.innerHTML = '<span class="track-progress"></span><img alt="" src="' + L.tile + '"><span>' + String(i + 1).padStart(2, "0") + "</span>";
+      b.addEventListener("click", function (e) { e.stopPropagation(); toggleJuke(i); });
+      finaleTape.appendChild(b);
+    });
+    markJuke();
+  }
+  function startHeartRain() {
+    heartRain.innerHTML = "";
+    if (reduceMotion) return;
+    for (var i = 0; i < 26; i++) {
+      var h = document.createElement("i");
+      h.style.left = rand(0, 100).toFixed(1) + "%";
+      h.style.setProperty("--s", Math.round(rand(8, 20)) + "px");
+      h.style.setProperty("--t", rand(5, 10).toFixed(2) + "s");
+      h.style.setProperty("--d", (-rand(0, 10)).toFixed(2) + "s");
+      h.style.setProperty("--r", Math.round(rand(-40, 40)) + "deg");
+      h.style.opacity = rand(0.35, 0.85).toFixed(2);
+      heartRain.appendChild(h);
+    }
+  }
+
   function showFinale() {
     state = "finale";
     player = null;
+    launch = null;
     pipes = [];
+    overlay.classList.remove("intro");
+    buildFinaleTape();
+    startHeartRain();
+    prepareShare();
     hideFailCard();
     readyHint.classList.remove("show");
     overlay.classList.add("full");
@@ -1349,9 +1514,11 @@
     var L = LEVELS[lv];
     revealArt.style.setProperty("--glow", L.glow);
     if (L.tile) { revealTile.src = L.tile; revealTile.style.display = ""; } else { revealTile.style.display = "none"; }
-    revealTile.classList.remove("pop");
-    void revealTile.offsetWidth;            // restart the pop-in animation
-    revealTile.classList.add("pop");
+    revealArt.classList.remove("pop", "playing");
+    void revealArt.offsetWidth;             // restart the slide-in
+    revealArt.classList.add("pop");
+    windTape(false, 0);
+    stopJuke(true);
     revealNum.textContent = String(lv + 1).padStart(2, "0");
     revealTitle.textContent = L.track;
     revealEl.classList.add("show");
@@ -1382,6 +1549,8 @@
       var ms = previewLength();
       revealProgress.style.transition = "width " + ms + "ms linear";
       revealProgress.style.width = "100%";
+      revealArt.classList.add("playing");
+      windTape(true, ms);
       clearTimeout(previewTimer);
       previewTimer = setTimeout(function () { finishReveal(lv); }, ms);
     }
@@ -1390,16 +1559,29 @@
     setTimeout(startBar, 600);
   }
 
+  // Tape winds from the left reel to the right one over the preview: the reels are the progress bar.
+  function windTape(toEnd, ms) {
+    [reelL, reelR].forEach(function (r) { r.style.setProperty("--dur", "0ms"); });
+    if (ms > 0) {
+      void reelL.offsetWidth;
+      [reelL, reelR].forEach(function (r) { r.style.setProperty("--dur", ms + "ms"); });
+    }
+    reelL.style.setProperty("--tape", toEnd ? 0.1 : 1);
+    reelR.style.setProperty("--tape", toEnd ? 1 : 0.1);
+  }
+
   function finishReveal(lv) {
     clearTimeout(previewTimer);
+    if (state !== "reveal") return;
+    state = "wipe";
     setMusicVolume(MUSIC_VOL, 0.5);
-    revealEl.classList.remove("show");
-    var next = lv + 1;
-    if (next >= LEVELS.length) {
-      showFinale();
-    } else {
-      showIntro(next);
-    }
+    wipe(function () {
+      revealEl.classList.remove("show");
+      revealArt.classList.remove("playing");
+      var next = lv + 1;
+      if (next >= LEVELS.length) showFinale();
+      else showIntro(next);
+    });
   }
 
   function onLevelCleared() {
@@ -1411,8 +1593,9 @@
 
   function flap() {
     ensureAudio();
+    if (wiping || state === "wipe") return;
     if (state === "intro") { enterReady(currentLevel); return; }
-    if (state === "ready") { startPlay(); return; }
+    if (state === "ready") { stopJuke(true); startPlay(); return; }
     if (state === "gameover") {
       if (performance.now() - failShownAt >= RETRY_LOCK_MS) enterReady(currentLevel);
       return;
@@ -1466,15 +1649,171 @@
 
   playAgainBtn.addEventListener("click", function (e) {
     e.stopPropagation();
-    completedLevels = 0;
-    saveProgress();
-    renderTracks();
-    currentAudioTrack = -1;
-    tape = null;
-    musicWanted = false;
-    try { previewAudio.pause(); } catch (err) {}
-    showIntro(0);
+    stopJuke(true);
+    wipe(function () {
+      completedLevels = 0;
+      saveProgress();
+      renderTracks();
+      currentAudioTrack = -1;
+      tape = null;
+      musicWanted = false;
+      try { previewAudio.pause(); } catch (err) {}
+      heartRain.innerHTML = "";
+      showIntro(0);
+    });
   });
+
+  // ---- Share: a pre-rendered image card (so the share sheet opens instantly on tap)
+  var shareBlob = null;
+  function siteUrl() { return (CFG.site && CFG.site.url) || location.href.split("#")[0].split("?")[0]; }
+  function prepareShare() {
+    shareBlob = null;
+    shareNote.textContent = "";
+    renderShareCard(1080, 1350, true).then(function (c) {
+      c.toBlob(function (b) { shareBlob = b; }, "image/png");
+    }).catch(function () {});
+  }
+  shareBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    var url = siteUrl();
+    var text = "I unlocked the whole tape of Loverboy O'Clock by TD. Can you? " + url;
+    function noop() {}
+    try {
+      if (shareBlob && navigator.canShare) {
+        var file = new File([shareBlob], "loverboy-oclock.png", { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) { navigator.share({ files: [file], text: text }).catch(noop); return; }
+      }
+      if (navigator.share) { navigator.share({ title: "Loverboy O'Clock", text: text, url: url }).catch(noop); return; }
+    } catch (err) {}
+    // desktop fallback: save the image and copy the link
+    if (shareBlob) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(shareBlob);
+      a.download = "loverboy-oclock.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    var done = function (copied) { shareNote.textContent = shareBlob ? (copied ? "Image saved · link copied" : "Image saved") : (copied ? "Link copied" : url); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    else done(false);
+  });
+
+  // Draws the share card (portrait for socials, landscape for the link preview image).
+  function renderShareCard(w, h, unlocked) {
+    var L7 = LEVELS[LEVELS.length - 1];
+    var jobs = [loadBg(LEVELS.length - 1), whenReady(FRAMES["idle-1"])];
+    var tiles = LEVELS.map(function (L) { return loadImg(L.tile); });
+    return Promise.all(jobs.concat(tiles)).then(function (res) {
+      var tileImgs = res.slice(jobs.length);
+      var c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      var g = c.getContext("2d");
+      var portrait = h > w;
+      g.fillStyle = "#1b1310";
+      g.fillRect(0, 0, w, h);
+      var bg = L7.bgImg;
+      if (bg) {
+        var s = Math.max(w / bg.width, h / bg.height);
+        g.imageSmoothingEnabled = false;
+        g.drawImage(bg, (w - bg.width * s) / 2, (h - bg.height * s) / 2, bg.width * s, bg.height * s);
+      }
+      // warm rays from the gate, then darken for text
+      var sx = w * (portrait ? 0.5 : 0.72), sy = h * (portrait ? 0.52 : 0.55);
+      var R = Math.max(w, h) * 1.2, rg = g.createRadialGradient(sx, sy, 0, sx, sy, R);
+      rg.addColorStop(0, "rgba(255,241,194,0.28)");
+      rg.addColorStop(1, "rgba(255,241,194,0)");
+      g.globalCompositeOperation = "lighter";
+      g.fillStyle = rg;
+      g.beginPath();
+      for (var r = 0; r < 14; r++) {
+        var a = (r / 14) * Math.PI * 2 + 0.1;
+        g.moveTo(sx, sy);
+        g.lineTo(sx + Math.cos(a - 0.05) * R, sy + Math.sin(a - 0.05) * R);
+        g.lineTo(sx + Math.cos(a + 0.05) * R, sy + Math.sin(a + 0.05) * R);
+        g.closePath();
+      }
+      g.fill();
+      g.globalCompositeOperation = "source-over";
+      var shade = portrait ? g.createLinearGradient(0, 0, 0, h) : g.createLinearGradient(0, 0, w, 0);
+      if (portrait) {
+        shade.addColorStop(0, "rgba(12,8,10,0.78)"); shade.addColorStop(0.36, "rgba(12,8,10,0.12)");
+        shade.addColorStop(0.62, "rgba(12,8,10,0.25)"); shade.addColorStop(1, "rgba(12,8,10,0.9)");
+      } else {
+        shade.addColorStop(0, "rgba(12,8,10,0.88)"); shade.addColorStop(0.55, "rgba(12,8,10,0.45)"); shade.addColorStop(1, "rgba(12,8,10,0.05)");
+      }
+      g.fillStyle = shade;
+      g.fillRect(0, 0, w, h);
+
+      function pixelText(str, x, y, size, align) {
+        g.font = "700 " + size + 'px "Pixelify Sans", monospace';
+        g.textAlign = align; g.textBaseline = "alphabetic";
+        g.fillStyle = "#d4537e"; g.fillText(str, x + size * 0.06, y + size * 0.06);
+        g.fillStyle = "#ffffff"; g.fillText(str, x, y);
+      }
+      function serif(str, x, y, size, align, italic, color) {
+        g.font = (italic ? "italic " : "") + size + "px " + (italic ? '"Instrument Serif"' : '"DM Serif Display"') + ", Georgia, serif";
+        g.textAlign = align; g.textBaseline = "alphabetic";
+        g.fillStyle = color || "#fff"; g.fillText(str, x, y);
+      }
+      function heart(cx, cy, px, color) {
+        g.fillStyle = color;
+        for (var rr = 0; rr < 6; rr++) for (var cc = 0; cc < 7; cc++) if (HEART[rr].charCodeAt(cc) === 49) g.fillRect(cx - 3.5 * px + cc * px, cy - 3 * px + rr * px, px, px);
+      }
+      function hero(cx, feetY, scale) {
+        var img = FRAMES["idle-1"];
+        if (!img || !img.naturalWidth) return;
+        var dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+        g.save();
+        g.shadowColor = "rgba(255,210,122,0.9)"; g.shadowBlur = scale * 10;
+        g.imageSmoothingEnabled = false;
+        g.drawImage(img, cx - dw / 2, feetY - dh, dw, dh);
+        g.restore();
+        var hy = feetY - dh * 0.47, gl = g.createRadialGradient(cx, hy, 0, cx, hy, scale * 16);
+        gl.addColorStop(0, "rgba(255,77,122,0.75)"); gl.addColorStop(1, "rgba(255,77,122,0)");
+        g.fillStyle = gl; g.fillRect(cx - scale * 16, hy - scale * 16, scale * 32, scale * 32);
+        heart(cx, hy, scale * 1.4, "#ff3d6e");
+      }
+      function tileRow(x0, y, size, gap) {
+        tileImgs.forEach(function (t, i) {
+          var x = x0 + i * (size + gap);
+          if (t) { g.imageSmoothingEnabled = false; g.drawImage(t, x, y, size, size); }
+          g.font = "700 " + Math.round(size * 0.26) + 'px "Pixelify Sans", monospace';
+          g.textAlign = "center"; g.fillStyle = "rgba(255,255,255,0.85)";
+          g.fillText(String(i + 1).padStart(2, "0"), x + size / 2, y + size + size * 0.36);
+        });
+      }
+      var host = siteUrl().replace(/^https?:\/\//, "").replace(/\/$/, "");
+      if (portrait) {
+        pixelText("LOVERBOY", w / 2, h * 0.14, w * 0.13, "center");
+        pixelText("O'CLOCK", w / 2, h * 0.235, w * 0.13, "center");
+        serif(unlocked ? "I unlocked the whole tape." : "A love story told through flight.", w / 2, h * 0.31, w * 0.052, "center", true);
+        hero(w / 2, h * 0.745, w * 0.0029);
+        var ts = w * 0.1, tg = w * 0.022;
+        tileRow((w - (7 * ts + 6 * tg)) / 2, h * 0.775, ts, tg);
+        serif("TD  \u00b7  7 tracks  \u00b7  7 hours", w / 2, h * 0.935, w * 0.036, "center", true, "rgba(255,255,255,0.85)");
+        g.font = "700 " + Math.round(w * 0.026) + 'px "Pixelify Sans", monospace';
+        g.textAlign = "center"; g.fillStyle = "#ffd27a"; g.fillText(host, w / 2, h * 0.972);
+      } else {
+        var lx = w * 0.06;
+        pixelText("LOVERBOY", lx, h * 0.27, h * 0.15, "left");
+        pixelText("O'CLOCK", lx, h * 0.43, h * 0.15, "left");
+        serif(unlocked ? "I unlocked the whole tape." : "A love story told through flight.", lx, h * 0.54, h * 0.068, "left", true);
+        var gs = h * 0.052;
+        g.font = gs + "px Shrikhand, sans-serif";
+        g.textAlign = "left";
+        var grad = g.createLinearGradient(lx, 0, lx + h * 0.9, 0);
+        grad.addColorStop(0, "#ff8fb1"); grad.addColorStop(1, "#ffc857");
+        g.fillStyle = grad;
+        g.fillText("Clear each hour. Unlock the tape.", lx, h * 0.635);
+        tileRow(lx, h * 0.69, h * 0.09, h * 0.018);
+        g.font = "700 " + Math.round(h * 0.036) + 'px "Pixelify Sans", monospace';
+        g.textAlign = "left"; g.fillStyle = "#ffd27a"; g.fillText(host, lx, h * 0.93);
+        hero(w * 0.8, h * 0.93, h * 0.0048);
+      }
+      return c;
+    });
+  }
 
   // =====================================================================================
   // Simulation (one fixed 60 Hz step)
@@ -1514,9 +1853,28 @@
 
     if (!player) return;
 
+    if (launch) {
+      launch.px = launch.x;
+      launch.x -= worldV;
+      if (launch.x < -80) launch = null;
+    }
+
+    if (state === "intro" && player.stand) return;
+
     if (state === "ready") {
-      // tread air: gentle bob, frames alternate in draw()
-      player.y = H * 0.45 + Math.sin(stateT / 260) * 7;
+      // tread air: gentle bob, frames alternate in draw(); first arc up off the launch pillar
+      var bob = H * 0.45 + Math.sin(stateT / 260) * 7;
+      if (player.entry) {
+        var e = player.entry;
+        e.t += STEP_MS;
+        var q = Math.min(1, e.t / 450);
+        player.y = lerp(e.y0, bob, easeOutBack(q));
+        player.rot = -0.3 * (1 - q);
+        if (q >= 1) player.entry = null;
+        player.sv += -player.s * 0.3; player.sv *= 0.7; player.s += player.sv;
+        return;
+      }
+      player.y = bob;
       player.vy = 0;
       player.rot = -0.06 + Math.sin(stateT / 260) * 0.05;
       player.sv += -player.s * 0.3; player.sv *= 0.7; player.s += player.sv;
@@ -1768,6 +2126,11 @@
   }
 
   function frameName() {
+    if (player.stand) {
+      if (stateT % 3400 < 130) return "idle-blink";
+      return IDLE_CYCLE[Math.floor(stateT / 260) % IDLE_CYCLE.length];
+    }
+    if (state === "ready" && player.entry) return player.entry.t < 130 ? "fly-1" : "jump-2";
     if (state === "ready") return Math.floor(stateT / 260) % 2 ? "jump-2" : "jump-3";
     if (state === "dying" || state === "gameover") {
       if (!player.grounded) return "hurt-1";
@@ -1806,6 +2169,8 @@
     ctx.globalAlpha = 1;
   }
 
+  var IDLE_CYCLE = ["idle-1", "idle-2", "idle-3", "idle-4", "idle-3", "idle-2"];
+
   function drawPlayer(L, alpha) {
     var name = frameName();
     var sp = glowSprite(name, currentLevel, L);
@@ -1817,7 +2182,14 @@
     if (sp) {
       ctx.imageSmoothingEnabled = true;
       var dw = sp.w, dh = sp.h;
-      if (player.grounded) {
+      if (player.stand) {
+        // standing on the launch pillar: feet on its cap, heart glowing through the hoodie
+        ctx.translate(0, 3);
+        ctx.scale(sx, sy);
+        ctx.drawImage(sp.canvas, -dw / 2 - GLOW_PAD, -dh - GLOW_PAD, dw + GLOW_PAD * 2, dh + GLOW_PAD * 2);
+        ctx.translate(1, -dh * 0.47);
+        drawChestHeart(performance.now());
+      } else if (player.grounded) {
         // lying on the ground: anchor to the feet
         ctx.translate(0, RADIUS);
         ctx.scale(sx, sy);
@@ -1873,6 +2245,12 @@
           ctx.globalAlpha = 1;
         }
       }
+    }
+
+    if (launch && (state === "intro" || state === "ready")) {
+      ctx.imageSmoothingEnabled = PILLAR_SCALE * k < 2;
+      var lx = Math.round(lerp(launch.px, launch.x, alpha) * k) / k;
+      drawColumn(lx - PIPE_WIDTH / 2, launchTop(), LAUNCH_H, L, false, "plain");
     }
 
     // ground: tinted stone strip scrolling with the pillars
@@ -2019,6 +2397,7 @@
     if (steps >= 8) acc = 0;
     draw(clamp(acc / STEP_MS, 0, 1));
     tickAudio(performance.now());
+    tickJuke();
     requestAnimationFrame(loop);
   }
 

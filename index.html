@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#16181c">
 <title>Loverboy O'Clock</title>
+<meta name="description" content="A love story told through flight. Clear each hour to unlock a track from TD's new tape, Loverboy O'Clock.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Loverboy O'Clock">
+<meta property="og:description" content="A love story told through flight. Clear each hour to unlock a track from TD's new tape.">
+<meta property="og:url" content="https://hansbuntu.github.io/loverboy-oclock/">
+<meta property="og:image" content="https://hansbuntu.github.io/loverboy-oclock/assets/share/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://hansbuntu.github.io/loverboy-oclock/assets/share/og-image.jpg">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16.png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
@@ -62,11 +72,15 @@
         <p class="intro-howto"><span>Tap to flap.</span><span>Thread the gaps.</span><span>Unlock the tape.</span></p>
         <p class="intro-start">Tap to begin</p>
       </div>
+      <div class="heart-rain" id="heartRain" aria-hidden="true"></div>
       <div class="finale-extra" id="finaleExtra" style="display:none;">
         <div class="finale-col">
         <div class="finale-art">&#9829;</div>
         <h2 class="finale-heading">You unlocked the whole tape.</h2>
-        <p class="finale-body">Thank you for playing through it all.</p>
+        <p class="finale-body">Seven hours, seven songs. Tap any track to hear it again.</p>
+        <div class="finale-tape" id="finaleTape"></div>
+        <button class="share-btn" id="shareBtn" type="button">Share your tape</button>
+        <p class="share-note" id="shareNote" aria-live="polite"></p>
         </div>
         <div class="finale-divider"></div>
         <div class="finale-col">
@@ -84,20 +98,31 @@
     </div>
     <div class="reveal" id="reveal">
       <div class="reveal-card">
-        <div class="reveal-art" id="revealArt">
-          <img class="reveal-tile" id="revealTile" alt="" src="assets/tiles/heart.png">
-          <span class="reveal-num" id="revealNum">01</span>
-        </div>
         <p class="reveal-label">Track unlocked</p>
+        <div class="cassette" id="revealArt">
+          <div class="cassette-label">
+            <img class="reveal-tile" id="revealTile" alt="" src="assets/tiles/heart.png">
+            <div class="cassette-text">
+              <span class="cassette-brand">Loverboy O'Clock</span>
+              <span class="cassette-side">Side A &middot; <b id="revealNum">01</b></span>
+            </div>
+          </div>
+          <div class="cassette-window">
+            <div class="reel" id="reelL"><span class="reel-tape"></span><span class="reel-hub"></span></div>
+            <div class="reel" id="reelR"><span class="reel-tape"></span><span class="reel-hub"></span></div>
+          </div>
+          <div class="cassette-foot"><i></i><i></i><i></i><i></i></div>
+        </div>
         <h2 class="reveal-title" id="revealTitle">Do You Love Me</h2>
         <p class="reveal-hint">Playing a preview &middot; tap to skip</p>
         <div class="reveal-progress"><div class="reveal-progress-fill" id="revealProgress"></div></div>
       </div>
     </div>
+    <div class="wipe" id="wipe" aria-hidden="true"></div>
   </div>
 
   <div class="panel">
-    <h3>Tracklist unlocks</h3>
+    <div class="panel-head"><h3>The tape</h3><span class="panel-hint" id="tapeHint" style="display:none;">Tap a track to listen</span></div>
     <div class="tracks" id="tracks"></div>
   </div>
 
