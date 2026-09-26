@@ -47,8 +47,6 @@
   var wipeEl = document.getElementById("wipe");
   var finaleTape = document.getElementById("finaleTape");
   var heartRain = document.getElementById("heartRain");
-  var shareBtn = document.getElementById("shareBtn");
-  var shareNote = document.getElementById("shareNote");
   var tapeHint = document.getElementById("tapeHint");
 
   // Physics runs at a fixed 60 steps/second (same numbers the levels were tuned with), so jump
@@ -63,7 +61,7 @@
   var NEAR_MISS_PX = 9;   // clearance that counts as a "close!" pass
   var RETRY_LOCK_MS = 420;
   var PREVIEW_MS = CFG.previewMs || 10000;
-  var NO_AUDIO_PREVIEW_MS = 3500;
+  var PREVIEW_MIN_MS = CFG.previewMinMs || 7000;
   var MUSIC_VOL = 0.35;
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -419,11 +417,10 @@
     window.addEventListener(ev, unlockAudio, { once: true, passive: true, capture: true });
   });
 
-  // Preview length: capped to the real clip length once metadata is known.
+  // Every unlock plays PREVIEW_MS (10 s); a shorter clip loops so it still lasts at least PREVIEW_MIN_MS.
   function previewLength() {
-    if (audioFailed) return NO_AUDIO_PREVIEW_MS;
     var d = previewAudio.duration;
-    if (isFinite(d) && d > 0) return Math.min(PREVIEW_MS, Math.round(d * 1000));
+    if (!audioFailed && isFinite(d) && d > 0) return clamp(Math.round(d * 1000), PREVIEW_MIN_MS, PREVIEW_MS);
     return PREVIEW_MS;
   }
 
@@ -1261,7 +1258,6 @@
     p.y = p.py = launchTop();  // standing: y is the line his feet rest on
     return p;
   }
-  function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
 
   function setupLevel(lv) {
     fitCanvas();
@@ -1270,12 +1266,13 @@
     loadBg(lv + 1);
     warmAudio(lv);
     pipesPassed = 0;
-    player = newPlayer();
+    player = standingPlayer();                 // every attempt starts on the pedestal
+    launch = { x: PLAYER_X, px: PLAYER_X };
     pipes = [];
     fx.length = 0;
     hitStop = 0; flash = 0; trauma = 0; heartBoost = 0;
     stageEl.style.setProperty("--level-glow", LEVELS[lv].glow);
-    initWeather(lv);
+    if (weather.lv !== lv) initWeather(lv);   // keep the same weather running from the intro
     var startX = W + 100;
     for (var i = 0; i < 4; i++) pipes.push(makePipe(startX + i * PIPE_SPACING, lv));
     updateHud();
@@ -1330,24 +1327,10 @@
     updateHud();
   }
 
-  // Hover in place until the first tap; gravity only starts when the player chooses.
+  // Back on the pedestal after a fall: stand there until the tap that launches him.
   function enterReady(lv) {
-    var fromStand = player && player.stand, standY = fromStand ? player.y : 0;
     stopJuke(true);
     setupLevel(lv);
-    if (fromStand) {
-      // jump off the pillar up into the hover
-      var y0 = standY - 40;
-      player.entry = { t: 0, y0: y0 };
-      player.y = player.py = y0;
-      player.flapT = 0;
-      player.s = 1;
-      flapPuff(LEVELS[lv]);
-      sfxFlap();
-      launch = { x: PLAYER_X, px: PLAYER_X };
-    } else {
-      launch = null;
-    }
     state = "ready";
     stateT = 0;
     overlay.classList.add("hide");
@@ -1358,10 +1341,25 @@
     playMusicFor(lv);
   }
 
+  // Straight off the level's intro screen: the tap that dismisses it is the launch.
+  function launchFromIntro(lv) {
+    stopJuke(true);
+    setupLevel(lv);
+    overlay.classList.add("hide");
+    hideFailCard();
+    playMusicFor(lv);
+    startPlay();
+  }
+
+  // The launch: he jumps off the pedestal and gravity takes over. The pedestal scrolls away.
   function startPlay() {
     state = "playing";
     stateT = 0;
     readyHint.classList.remove("show");
+    player.stand = false;
+    player.y = player.py = launchTop() - 30;
+    player.ppx = player.x;
+    player.rot = player.prot = 0;
     doFlap();
   }
 
@@ -1453,7 +1451,6 @@
     overlay.classList.remove("intro");
     buildFinaleTape();
     startHeartRain();
-    prepareShare();
     hideFailCard();
     readyHint.classList.remove("show");
     overlay.classList.add("full");
@@ -1506,7 +1503,13 @@
     if ((best[currentLevel] || 0) < L.need) { best[currentLevel] = L.need; saveBest(); }
   }
 
-  var revealShownAt = 0;
+  var revealShownAt = 0, revealEndsAt = 0;
+  var revealCount = document.getElementById("revealCount");
+  function tickReveal(now) {
+    if (state !== "reveal" || !revealEndsAt) return;
+    var s = String(Math.max(0, Math.ceil((revealEndsAt - now) / 1000)));
+    if (revealCount.textContent !== s) revealCount.textContent = s;
+  }
   function triggerReveal(lv) {
     state = "reveal";
     revealShownAt = Date.now();
@@ -1521,6 +1524,8 @@
     stopJuke(true);
     revealNum.textContent = String(lv + 1).padStart(2, "0");
     revealTitle.textContent = L.track;
+    revealEndsAt = 0;
+    revealCount.textContent = String(Math.round(PREVIEW_MS / 1000));
     revealEl.classList.add("show");
 
     sfxUnlock();
@@ -1553,6 +1558,7 @@
       windTape(true, ms);
       clearTimeout(previewTimer);
       previewTimer = setTimeout(function () { finishReveal(lv); }, ms);
+      revealEndsAt = performance.now() + ms;
     }
     previewAudio.addEventListener("loadedmetadata", startBar, { once: true });
     previewAudio.addEventListener("error", startBar, { once: true });
@@ -1594,18 +1600,14 @@
   function flap() {
     ensureAudio();
     if (wiping || state === "wipe") return;
-    if (state === "intro") { enterReady(currentLevel); return; }
+    if (state === "intro") { launchFromIntro(currentLevel); return; }
     if (state === "ready") { stopJuke(true); startPlay(); return; }
     if (state === "gameover") {
       if (performance.now() - failShownAt >= RETRY_LOCK_MS) enterReady(currentLevel);
       return;
     }
     if (state === "finale" || state === "dying" || state === "clear") return;
-    if (state === "reveal") {
-      if (Date.now() - revealShownAt < 900) return;
-      finishReveal(currentLevel);
-      return;
-    }
+    if (state === "reveal") return;   // the preview can't be skipped
     if (state === "playing") doFlap();
   }
 
@@ -1663,158 +1665,6 @@
     });
   });
 
-  // ---- Share: a pre-rendered image card (so the share sheet opens instantly on tap)
-  var shareBlob = null;
-  function siteUrl() { return (CFG.site && CFG.site.url) || location.href.split("#")[0].split("?")[0]; }
-  function prepareShare() {
-    shareBlob = null;
-    shareNote.textContent = "";
-    renderShareCard(1080, 1350, true).then(function (c) {
-      c.toBlob(function (b) { shareBlob = b; }, "image/png");
-    }).catch(function () {});
-  }
-  shareBtn.addEventListener("click", function (e) {
-    e.stopPropagation();
-    var url = siteUrl();
-    var text = "I unlocked the whole tape of Loverboy O'Clock by TD. Can you? " + url;
-    function noop() {}
-    try {
-      if (shareBlob && navigator.canShare) {
-        var file = new File([shareBlob], "loverboy-oclock.png", { type: "image/png" });
-        if (navigator.canShare({ files: [file] })) { navigator.share({ files: [file], text: text }).catch(noop); return; }
-      }
-      if (navigator.share) { navigator.share({ title: "Loverboy O'Clock", text: text, url: url }).catch(noop); return; }
-    } catch (err) {}
-    // desktop fallback: save the image and copy the link
-    if (shareBlob) {
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(shareBlob);
-      a.download = "loverboy-oclock.png";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }
-    var done = function (copied) { shareNote.textContent = shareBlob ? (copied ? "Image saved · link copied" : "Image saved") : (copied ? "Link copied" : url); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
-    else done(false);
-  });
-
-  // Draws the share card (portrait for socials, landscape for the link preview image).
-  function renderShareCard(w, h, unlocked) {
-    var L7 = LEVELS[LEVELS.length - 1];
-    var jobs = [loadBg(LEVELS.length - 1), whenReady(FRAMES["idle-1"])];
-    var tiles = LEVELS.map(function (L) { return loadImg(L.tile); });
-    return Promise.all(jobs.concat(tiles)).then(function (res) {
-      var tileImgs = res.slice(jobs.length);
-      var c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      var g = c.getContext("2d");
-      var portrait = h > w;
-      g.fillStyle = "#1b1310";
-      g.fillRect(0, 0, w, h);
-      var bg = L7.bgImg;
-      if (bg) {
-        var s = Math.max(w / bg.width, h / bg.height);
-        g.imageSmoothingEnabled = false;
-        g.drawImage(bg, (w - bg.width * s) / 2, (h - bg.height * s) / 2, bg.width * s, bg.height * s);
-      }
-      // warm rays from the gate, then darken for text
-      var sx = w * (portrait ? 0.5 : 0.72), sy = h * (portrait ? 0.52 : 0.55);
-      var R = Math.max(w, h) * 1.2, rg = g.createRadialGradient(sx, sy, 0, sx, sy, R);
-      rg.addColorStop(0, "rgba(255,241,194,0.28)");
-      rg.addColorStop(1, "rgba(255,241,194,0)");
-      g.globalCompositeOperation = "lighter";
-      g.fillStyle = rg;
-      g.beginPath();
-      for (var r = 0; r < 14; r++) {
-        var a = (r / 14) * Math.PI * 2 + 0.1;
-        g.moveTo(sx, sy);
-        g.lineTo(sx + Math.cos(a - 0.05) * R, sy + Math.sin(a - 0.05) * R);
-        g.lineTo(sx + Math.cos(a + 0.05) * R, sy + Math.sin(a + 0.05) * R);
-        g.closePath();
-      }
-      g.fill();
-      g.globalCompositeOperation = "source-over";
-      var shade = portrait ? g.createLinearGradient(0, 0, 0, h) : g.createLinearGradient(0, 0, w, 0);
-      if (portrait) {
-        shade.addColorStop(0, "rgba(12,8,10,0.78)"); shade.addColorStop(0.36, "rgba(12,8,10,0.12)");
-        shade.addColorStop(0.62, "rgba(12,8,10,0.25)"); shade.addColorStop(1, "rgba(12,8,10,0.9)");
-      } else {
-        shade.addColorStop(0, "rgba(12,8,10,0.88)"); shade.addColorStop(0.55, "rgba(12,8,10,0.45)"); shade.addColorStop(1, "rgba(12,8,10,0.05)");
-      }
-      g.fillStyle = shade;
-      g.fillRect(0, 0, w, h);
-
-      function pixelText(str, x, y, size, align) {
-        g.font = "700 " + size + 'px "Pixelify Sans", monospace';
-        g.textAlign = align; g.textBaseline = "alphabetic";
-        g.fillStyle = "#d4537e"; g.fillText(str, x + size * 0.06, y + size * 0.06);
-        g.fillStyle = "#ffffff"; g.fillText(str, x, y);
-      }
-      function serif(str, x, y, size, align, italic, color) {
-        g.font = (italic ? "italic " : "") + size + "px " + (italic ? '"Instrument Serif"' : '"DM Serif Display"') + ", Georgia, serif";
-        g.textAlign = align; g.textBaseline = "alphabetic";
-        g.fillStyle = color || "#fff"; g.fillText(str, x, y);
-      }
-      function heart(cx, cy, px, color) {
-        g.fillStyle = color;
-        for (var rr = 0; rr < 6; rr++) for (var cc = 0; cc < 7; cc++) if (HEART[rr].charCodeAt(cc) === 49) g.fillRect(cx - 3.5 * px + cc * px, cy - 3 * px + rr * px, px, px);
-      }
-      function hero(cx, feetY, scale) {
-        var img = FRAMES["idle-1"];
-        if (!img || !img.naturalWidth) return;
-        var dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
-        g.save();
-        g.shadowColor = "rgba(255,210,122,0.9)"; g.shadowBlur = scale * 10;
-        g.imageSmoothingEnabled = false;
-        g.drawImage(img, cx - dw / 2, feetY - dh, dw, dh);
-        g.restore();
-        var hy = feetY - dh * 0.47, gl = g.createRadialGradient(cx, hy, 0, cx, hy, scale * 16);
-        gl.addColorStop(0, "rgba(255,77,122,0.75)"); gl.addColorStop(1, "rgba(255,77,122,0)");
-        g.fillStyle = gl; g.fillRect(cx - scale * 16, hy - scale * 16, scale * 32, scale * 32);
-        heart(cx, hy, scale * 1.4, "#ff3d6e");
-      }
-      function tileRow(x0, y, size, gap) {
-        tileImgs.forEach(function (t, i) {
-          var x = x0 + i * (size + gap);
-          if (t) { g.imageSmoothingEnabled = false; g.drawImage(t, x, y, size, size); }
-          g.font = "700 " + Math.round(size * 0.26) + 'px "Pixelify Sans", monospace';
-          g.textAlign = "center"; g.fillStyle = "rgba(255,255,255,0.85)";
-          g.fillText(String(i + 1).padStart(2, "0"), x + size / 2, y + size + size * 0.36);
-        });
-      }
-      var host = siteUrl().replace(/^https?:\/\//, "").replace(/\/$/, "");
-      if (portrait) {
-        pixelText("LOVERBOY", w / 2, h * 0.14, w * 0.13, "center");
-        pixelText("O'CLOCK", w / 2, h * 0.235, w * 0.13, "center");
-        serif(unlocked ? "I unlocked the whole tape." : "A love story told through flight.", w / 2, h * 0.31, w * 0.052, "center", true);
-        hero(w / 2, h * 0.745, w * 0.0029);
-        var ts = w * 0.1, tg = w * 0.022;
-        tileRow((w - (7 * ts + 6 * tg)) / 2, h * 0.775, ts, tg);
-        serif("TD  \u00b7  7 tracks  \u00b7  7 hours", w / 2, h * 0.935, w * 0.036, "center", true, "rgba(255,255,255,0.85)");
-        g.font = "700 " + Math.round(w * 0.026) + 'px "Pixelify Sans", monospace';
-        g.textAlign = "center"; g.fillStyle = "#ffd27a"; g.fillText(host, w / 2, h * 0.972);
-      } else {
-        var lx = w * 0.06;
-        pixelText("LOVERBOY", lx, h * 0.27, h * 0.15, "left");
-        pixelText("O'CLOCK", lx, h * 0.43, h * 0.15, "left");
-        serif(unlocked ? "I unlocked the whole tape." : "A love story told through flight.", lx, h * 0.54, h * 0.068, "left", true);
-        var gs = h * 0.052;
-        g.font = gs + "px Shrikhand, sans-serif";
-        g.textAlign = "left";
-        var grad = g.createLinearGradient(lx, 0, lx + h * 0.9, 0);
-        grad.addColorStop(0, "#ff8fb1"); grad.addColorStop(1, "#ffc857");
-        g.fillStyle = grad;
-        g.fillText("Clear each hour. Unlock the tape.", lx, h * 0.635);
-        tileRow(lx, h * 0.69, h * 0.09, h * 0.018);
-        g.font = "700 " + Math.round(h * 0.036) + 'px "Pixelify Sans", monospace';
-        g.textAlign = "left"; g.fillStyle = "#ffd27a"; g.fillText(host, lx, h * 0.93);
-        hero(w * 0.8, h * 0.93, h * 0.0048);
-      }
-      return c;
-    });
-  }
-
   // =====================================================================================
   // Simulation (one fixed 60 Hz step)
   // =====================================================================================
@@ -1844,7 +1694,7 @@
 
     if (weather.lv >= 0) stepWeather();
     // ground + foreground scroll with the world (they keep moving while hovering, stop on a crash)
-    var worldV = state === "playing" || state === "ready" ? L.speed : state === "clear" ? L.speed * Math.max(0.12, 1 - stateT / 700) : 0;
+    var worldV = state === "playing" ? L.speed : state === "clear" ? L.speed * Math.max(0.12, 1 - stateT / 700) : 0;
     groundX += worldV;
     stepFx();
 
@@ -1859,27 +1709,7 @@
       if (launch.x < -80) launch = null;
     }
 
-    if (state === "intro" && player.stand) return;
-
-    if (state === "ready") {
-      // tread air: gentle bob, frames alternate in draw(); first arc up off the launch pillar
-      var bob = H * 0.45 + Math.sin(stateT / 260) * 7;
-      if (player.entry) {
-        var e = player.entry;
-        e.t += STEP_MS;
-        var q = Math.min(1, e.t / 450);
-        player.y = lerp(e.y0, bob, easeOutBack(q));
-        player.rot = -0.3 * (1 - q);
-        if (q >= 1) player.entry = null;
-        player.sv += -player.s * 0.3; player.sv *= 0.7; player.s += player.sv;
-        return;
-      }
-      player.y = bob;
-      player.vy = 0;
-      player.rot = -0.06 + Math.sin(stateT / 260) * 0.05;
-      player.sv += -player.s * 0.3; player.sv *= 0.7; player.s += player.sv;
-      return;
-    }
+    if (player.stand) return;   // intro / ready: idling on the pedestal
 
     if (state === "dying" || state === "gameover") {
       var floorY = H - GROUND_H - RADIUS;
@@ -2130,8 +1960,6 @@
       if (stateT % 3400 < 130) return "idle-blink";
       return IDLE_CYCLE[Math.floor(stateT / 260) % IDLE_CYCLE.length];
     }
-    if (state === "ready" && player.entry) return player.entry.t < 130 ? "fly-1" : "jump-2";
-    if (state === "ready") return Math.floor(stateT / 260) % 2 ? "jump-2" : "jump-3";
     if (state === "dying" || state === "gameover") {
       if (!player.grounded) return "hurt-1";
       return "death-" + Math.min(4, 1 + Math.floor(player.groundT / DEATH_FRAME_MS));
@@ -2247,7 +2075,7 @@
       }
     }
 
-    if (launch && (state === "intro" || state === "ready")) {
+    if (launch && state !== "reveal" && state !== "finale") {
       ctx.imageSmoothingEnabled = PILLAR_SCALE * k < 2;
       var lx = Math.round(lerp(launch.px, launch.x, alpha) * k) / k;
       drawColumn(lx - PIPE_WIDTH / 2, launchTop(), LAUNCH_H, L, false, "plain");
@@ -2398,6 +2226,7 @@
     draw(clamp(acc / STEP_MS, 0, 1));
     tickAudio(performance.now());
     tickJuke();
+    tickReveal(performance.now());
     requestAnimationFrame(loop);
   }
 

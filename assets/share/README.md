@@ -1,1 +1,1 @@
-Link-preview image (1200x630) rendered by the game's own share-card code (renderShareCard in js/game.js), saved as JPEG.
+Link-preview image (1200x630) for the og:image / twitter:image tags in index.html. It was rendered once by the game's share-card code, which was later removed from the game (see commit b3ff768 in git history to regenerate it).
